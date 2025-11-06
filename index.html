@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Live Face Tracking – BlazeFace (Responsive + Landmarks)</title>
+  <title>Live Face Tracking – BlazeFace (Responsive + Labeled Landmarks)</title>
 
   <!-- TensorFlow.js core + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -29,7 +29,7 @@
       left: 0;
       width: 100%;
       height: 100%;
-      object-fit: cover; /* fill entire screen, maintain aspect ratio */
+      object-fit: cover;
     }
   </style>
 </head>
@@ -102,38 +102,37 @@
           ctx.lineWidth = 3;
           ctx.strokeRect(mirroredX1, y1, width, height);
 
-          // --- Draw facial landmarks (with corrected mirroring) ---
+          // --- Draw labeled facial landmarks ---
           if (pred.landmarks) {
-            // Swap left/right to match mirrored display
             const [
-              origRightEye,  // model’s right eye (your left)
-              origLeftEye,   // model’s left eye (your right)
+              modelRightEye,
+              modelLeftEye,
               nose,
-              origMouthR,    // model’s right mouth corner
-              origMouthL,    // model’s left mouth corner
-              rightEar
+              modelMouthRight,
+              modelMouthLeft,
+              modelRightEar
             ] = pred.landmarks;
 
-            // Swap them logically for mirrored output
-            const rightEye = origLeftEye;
-            const leftEye  = origRightEye;
-            const mouthR   = origMouthL;
-            const mouthL   = origMouthR;
-
             const points = [
-              { name: "Right Eye", x: canvas.width - rightEye[0], y: rightEye[1], color: "red" },
-              { name: "Left Eye",  x: canvas.width - leftEye[0],  y: leftEye[1],  color: "red" },
-              { name: "Nose",      x: canvas.width - nose[0],     y: nose[1],     color: "yellow" },
-              { name: "Mouth R",   x: canvas.width - mouthR[0],   y: mouthR[1],   color: "blue" },
-              { name: "Mouth L",   x: canvas.width - mouthL[0],   y: mouthL[1],   color: "blue" },
-              { name: "Right Ear", x: canvas.width - rightEar[0], y: rightEar[1], color: "orange" }
+              { name: "Right Eye", x: canvas.width - modelRightEye[0], y: modelRightEye[1], color: "red" },
+              { name: "Left Eye",  x: canvas.width - modelLeftEye[0],  y: modelLeftEye[1],  color: "red" },
+              { name: "Nose",      x: canvas.width - nose[0],          y: nose[1],          color: "yellow" },
+              { name: "Mouth R",   x: canvas.width - modelMouthRight[0], y: modelMouthRight[1], color: "blue" },
+              { name: "Mouth L",   x: canvas.width - modelMouthLeft[0],  y: modelMouthLeft[1],  color: "blue" },
+              { name: "Right Ear", x: canvas.width - modelRightEar[0],   y: modelRightEar[1],   color: "orange" }
             ];
 
             points.forEach(pt => {
+              // Draw dot
               ctx.fillStyle = pt.color;
               ctx.beginPath();
               ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
               ctx.fill();
+
+              // Draw label
+              ctx.font = "14px Arial";
+              ctx.fillStyle = "#fff";
+              ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
             });
           }
         });
