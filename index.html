@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -102,11 +102,24 @@
           ctx.lineWidth = 3;
           ctx.strokeRect(mirroredX1, y1, width, height);
 
-          // --- Draw facial landmarks ---
+          // --- Draw facial landmarks (with corrected mirroring) ---
           if (pred.landmarks) {
-            const [rightEye, leftEye, nose, mouthR, mouthL, rightEar] = pred.landmarks;
+            // Swap left/right to match mirrored display
+            const [
+              origRightEye,  // model’s right eye (your left)
+              origLeftEye,   // model’s left eye (your right)
+              nose,
+              origMouthR,    // model’s right mouth corner
+              origMouthL,    // model’s left mouth corner
+              rightEar
+            ] = pred.landmarks;
 
-            // Mirror X coordinates for each
+            // Swap them logically for mirrored output
+            const rightEye = origLeftEye;
+            const leftEye  = origRightEye;
+            const mouthR   = origMouthL;
+            const mouthL   = origMouthR;
+
             const points = [
               { name: "Right Eye", x: canvas.width - rightEye[0], y: rightEye[1], color: "red" },
               { name: "Left Eye",  x: canvas.width - leftEye[0],  y: leftEye[1],  color: "red" },
