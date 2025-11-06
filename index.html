@@ -1,23 +1,91 @@
 <!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SnazyCam Face Tracker</title>
-    <link rel="stylesheet" href="css/styles.css" />
-  </head>
-  <body>
-    <main class="app-shell">
-      <div class="stage" id="stage">
-        <video id="cameraFeed" class="camera-feed" autoplay muted playsinline></video>
-        <canvas id="landmarkOverlay" class="overlay" width="1280" height="720"></canvas>
-        <section class="hud-panel" id="hudLatest" aria-live="polite"></section>
-        <section class="hud-panel history" id="hudHistory" aria-live="polite"></section>
-        <div class="controls">
-          <button id="toggleTracking" type="button">Pause Tracking</button>
-        </div>
-        <div class="error-banner" id="errorBanner" role="alert" hidden></div>
-      </div>
-    </main>
-    <script type="module" src="js/main.js"></script>
-  </body>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Face Tracking – BlazeFace</title>
+
+  <!-- TensorFlow.js core + BlazeFace -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    canvas, video {
+      position: absolute;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="overlay"></canvas>
+
+  <script>
+    let model, video, canvas, ctx;
+
+    async function setupCamera() {
+      video = document.getElementById("video");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false
+      });
+      video.srcObject = stream;
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => resolve(video);
+      });
+    }
+
+    async function main() {
+      await tf.setBackend("webgl");
+      model = await blazeface.load();
+
+      await setupCamera();
+      video.play();
+
+      canvas = document.getElementById("overlay");
+      ctx = canvas.getContext("2d");
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      detectFaces();
+    }
+
+    async function detectFaces() {
+      const predictions = await model.estimateFaces(video, false);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      if (predictions.length > 0) {
+        predictions.forEach(pred => {
+          const [x1, y1] = pred.topLeft;
+          const [x2, y2] = pred.bottomRight;
+          const width = x2 - x1;
+          const height = y2 - y1;
+          ctx.strokeStyle = "lime";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x1, y1, width, height);
+        });
+      }
+
+      requestAnimationFrame(detectFaces);
+    }
+
+    main();
+  </script>
+</body>
 </html>
