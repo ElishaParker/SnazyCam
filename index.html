@@ -122,6 +122,9 @@
 
         if (smoothedLandmarks) {
           const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
+            // 🔧 adjust mouth-left vertically
+          const MOUTH_L_Y_OFFSET = 10;
+          mL[1] += MOUTH_L_Y_OFFSET;
           const points = [
             { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
             { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
