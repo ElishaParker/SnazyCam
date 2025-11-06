@@ -1,162 +1,137 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Live Face Tracking – BlazeFace (Smoothed + Corrected Mirror)</title>
+<script>
+  let model, video, canvas, ctx;
+  let smoothedBox = null, smoothedLandmarks = null;
+  const SMOOTHING_ALPHA = 0.3;
+  let pulseFrame = 0;
 
-  <!-- TensorFlow.js core + BlazeFace -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+  async function setupCamera() {
+    video = document.getElementById("video");
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    return new Promise(r => video.onloadedmetadata = () => r(video));
+  }
 
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background: #000;
-      height: 100%;
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    video, canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-  </style>
-</head>
-<body>
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="overlay"></canvas>
+  async function main() {
+    await tf.setBackend("webgl");
+    model = await blazeface.load();
+    await setupCamera();
+    video.play();
+    canvas = document.getElementById("overlay");
+    ctx = canvas.getContext("2d");
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
+    detectFaces();
+  }
 
-  <script>
-    let model, video, canvas, ctx;
-    let smoothedBox = null, smoothedLandmarks = null;
-    const SMOOTHING_ALPHA = 0.3;
+  function resizeCanvas() {
+    canvas.width = video.videoWidth || window.innerWidth;
+    canvas.height = video.videoHeight || window.innerHeight;
+  }
 
-    async function setupCamera() {
-      video = document.getElementById("video");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false
-      });
-      video.srcObject = stream;
-      return new Promise(r => video.onloadedmetadata = () => r(video));
-    }
+  function smoothPoints(prev, next) {
+    if (!prev) return next;
+    return prev.map((p, i) => [
+      p[0] + SMOOTHING_ALPHA * (next[i][0] - p[0]),
+      p[1] + SMOOTHING_ALPHA * (next[i][1] - p[1])
+    ]);
+  }
 
-    async function main() {
-      await tf.setBackend("webgl");
-      model = await blazeface.load();
-      await setupCamera();
-      video.play();
-      canvas = document.getElementById("overlay");
-      ctx = canvas.getContext("2d");
-      resizeCanvas();
-      window.addEventListener("resize", resizeCanvas);
-      window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
-      detectFaces();
-    }
+  function smoothBox(prev, next) {
+    if (!prev) return next;
+    return {
+      topLeft: [
+        prev.topLeft[0] + SMOOTHING_ALPHA * (next.topLeft[0] - prev.topLeft[0]),
+        prev.topLeft[1] + SMOOTHING_ALPHA * (next.topLeft[1] - prev.topLeft[1])
+      ],
+      bottomRight: [
+        prev.bottomRight[0] + SMOOTHING_ALPHA * (next.bottomRight[0] - prev.bottomRight[0]),
+        prev.bottomRight[1] + SMOOTHING_ALPHA * (next.bottomRight[1] - prev.bottomRight[1])
+      ]
+    };
+  }
 
-    function resizeCanvas() {
-      canvas.width = video.videoWidth || window.innerWidth;
-      canvas.height = video.videoHeight || window.innerHeight;
-    }
+  async function detectFaces() {
+    const predictions = await model.estimateFaces(video, false);
+    pulseFrame++;
 
-    function smoothPoints(prev, next) {
-      if (!prev) return next;
-      return prev.map((p, i) => [
-        p[0] + SMOOTHING_ALPHA * (next[i][0] - p[0]),
-        p[1] + SMOOTHING_ALPHA * (next[i][1] - p[1])
-      ]);
-    }
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.translate(-canvas.width, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
 
-    function smoothBox(prev, next) {
-      if (!prev) return next;
-      return {
-        topLeft: [
-          prev.topLeft[0] + SMOOTHING_ALPHA * (next.topLeft[0] - prev.topLeft[0]),
-          prev.topLeft[1] + SMOOTHING_ALPHA * (next.topLeft[1] - prev.topLeft[1])
-        ],
-        bottomRight: [
-          prev.bottomRight[0] + SMOOTHING_ALPHA * (next.bottomRight[0] - prev.bottomRight[0]),
-          prev.bottomRight[1] + SMOOTHING_ALPHA * (next.bottomRight[1] - prev.bottomRight[1])
-        ]
-      };
-    }
+    if (predictions.length > 0) {
+      const pred = predictions[0];
+      const confidence = pred.probability ? pred.probability[0] : 1.0;
 
-    async function detectFaces() {
-      const predictions = await model.estimateFaces(video, false);
+      smoothedBox = smoothBox(smoothedBox, { topLeft: pred.topLeft, bottomRight: pred.bottomRight });
+      smoothedLandmarks = smoothPoints(smoothedLandmarks, pred.landmarks);
 
+      const [x1, y1] = smoothedBox.topLeft;
+      const [x2, y2] = smoothedBox.bottomRight;
+      const width = x2 - x1, height = y2 - y1;
+
+      // ✅ Draw mirrored box correctly
       ctx.save();
       ctx.scale(-1, 1);
       ctx.translate(-canvas.width, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "lime";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x1, y1, width, height);
       ctx.restore();
 
-      if (predictions.length > 0) {
-        const pred = predictions[0];
-        smoothedBox = smoothBox(smoothedBox, { topLeft: pred.topLeft, bottomRight: pred.bottomRight });
-        smoothedLandmarks = smoothPoints(smoothedLandmarks, pred.landmarks);
+      if (smoothedLandmarks) {
+        const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
-        const [x1, y1] = smoothedBox.topLeft;
-        const [x2, y2] = smoothedBox.bottomRight;
-        const width = x2 - x1, height = y2 - y1;
+        const points = [
+          { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
+          { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
+          { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
+          { name: "Nose Twin", x: nose[0], y: nose[1], color: "teal", radius: 2 },
+          { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
+          { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
+          { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
+        ];
 
-        // ✅ Draw mirrored box correctly
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
-        ctx.strokeStyle = "lime";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(x1, y1, width, height);
-        ctx.restore();
 
-        if (smoothedLandmarks) {
-          const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
-          // 🔧 proportional downward correction for Mouth L
-          const boxHeight = smoothedBox ? smoothedBox.bottomRight[1] - smoothedBox.topLeft[1] : 0;
-          mL[1] += boxHeight * 0.06; // ~6% of face height — tweak between 0.04–0.08
-           
-          const points = [
-            { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
-            { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
-            { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
-            { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
-            { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
-            { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
-          ];
+        points.forEach(pt => {
+          // 🔹 Pulse effect for the twin dot only
+          let pulse = 1;
+          if (pt.name === "Nose Twin") {
+            const pulseIntensity = 1 + Math.sin(pulseFrame * 0.15) * 0.2; // soft breathing
+            pulse = pulseIntensity * (0.5 + confidence * 0.5); // scales with detection confidence
+            ctx.globalAlpha = 0.7 + 0.3 * Math.sin(pulseFrame * 0.15);
+          } else {
+            ctx.globalAlpha = 1.0;
+          }
 
-          ctx.save();
-          ctx.scale(-1, 1);
-          ctx.translate(-canvas.width, 0);
+          ctx.fillStyle = pt.color;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, (pt.radius || 4) * pulse, 0, 2 * Math.PI);
+          ctx.fill();
 
-          points.forEach(pt => {
-            ctx.fillStyle = pt.color;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
+          // label (skip label for the twin)
+          if (pt.name !== "Nose Twin") {
             ctx.font = "14px Arial";
             ctx.fillStyle = "#fff";
             ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
-          });
+          }
+        });
 
-          ctx.restore();
-        }
+        ctx.restore();
       }
-
-      requestAnimationFrame(detectFaces);
     }
 
-    main();
-  </script>
-</body>
-</html>
+    requestAnimationFrame(detectFaces);
+  }
+
+  main();
+</script>
