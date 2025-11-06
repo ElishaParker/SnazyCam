@@ -111,7 +111,7 @@
         const [x2, y2] = smoothedBox.bottomRight;
         const width = x2 - x1, height = y2 - y1;
 
-        // ✅ Draw mirrored box correctly
+        // ✅ Draw mirrored bounding box
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
@@ -127,7 +127,6 @@
             { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
             { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
             { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
-            { name: "Nose Twin", x: nose[0], y: nose[1], color: "#00FFFF", radius: 2, noLabel: true, glow: true },
             { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
             { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
             { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
@@ -139,26 +138,17 @@
 
           // --- Draw all facial points ---
           points.forEach(pt => {
-            if (pt.glow) {
-              ctx.shadowColor = pt.color;
-              ctx.shadowBlur = 8;
-            } else {
-              ctx.shadowBlur = 0;
-            }
-
+            ctx.shadowBlur = 0;
             ctx.fillStyle = pt.color;
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, pt.radius || 4, 0, 2 * Math.PI);
+            ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
             ctx.fill();
-
-            if (!pt.noLabel) {
-              ctx.font = "14px Arial";
-              ctx.fillStyle = "#fff";
-              ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
-            }
+            ctx.font = "14px Arial";
+            ctx.fillStyle = "#fff";
+            ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
           });
 
-          // --- Draw dynamic crosshair centered on the nose ---
+          // --- Draw dynamic crosshair centered on nose ---
           const noseX = nose[0];
           const noseY = nose[1];
 
