@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Live Face Tracking – BlazeFace (Smoothed + Corrected Mirror)</title>
+  <title>Live Face Tracking – BlazeFace (Smoothed + Crosshair + Coordinates)</title>
 
   <!-- TensorFlow.js core + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -122,10 +122,12 @@
 
         if (smoothedLandmarks) {
           const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
+
           const points = [
             { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
             { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
             { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
+            { name: "Nose Twin", x: nose[0], y: nose[1], color: "#00FFFF", radius: 2, noLabel: true, glow: true },
             { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
             { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
             { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
@@ -135,15 +137,60 @@
           ctx.scale(-1, 1);
           ctx.translate(-canvas.width, 0);
 
+          // --- Draw all facial points ---
           points.forEach(pt => {
+            if (pt.glow) {
+              ctx.shadowColor = pt.color;
+              ctx.shadowBlur = 8;
+            } else {
+              ctx.shadowBlur = 0;
+            }
+
             ctx.fillStyle = pt.color;
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
+            ctx.arc(pt.x, pt.y, pt.radius || 4, 0, 2 * Math.PI);
             ctx.fill();
-            ctx.font = "14px Arial";
-            ctx.fillStyle = "#fff";
-            ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
+
+            if (!pt.noLabel) {
+              ctx.font = "14px Arial";
+              ctx.fillStyle = "#fff";
+              ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
+            }
           });
+
+          // --- Draw dynamic crosshair centered on the nose ---
+          const noseX = nose[0];
+          const noseY = nose[1];
+
+          ctx.shadowBlur = 0;
+          ctx.lineWidth = 2;
+
+          // Horizontal line (red)
+          ctx.strokeStyle = "red";
+          ctx.beginPath();
+          ctx.moveTo(0, noseY);
+          ctx.lineTo(canvas.width, noseY);
+          ctx.stroke();
+
+          // Vertical line (lime)
+          ctx.strokeStyle = "lime";
+          ctx.beginPath();
+          ctx.moveTo(noseX, 0);
+          ctx.lineTo(noseX, canvas.height);
+          ctx.stroke();
+
+          // White center marker
+          ctx.fillStyle = "white";
+          ctx.beginPath();
+          ctx.arc(noseX, noseY, 3, 0, 2 * Math.PI);
+          ctx.fill();
+
+          // --- Display numeric X/Y coordinates ---
+          ctx.font = "16px monospace";
+          ctx.fillStyle = "#00FFFF";
+          const displayX = Math.round(noseX);
+          const displayY = Math.round(noseY);
+          ctx.fillText(`X: ${displayX}, Y: ${displayY}`, noseX + 10, noseY - 10);
 
           ctx.restore();
         }
