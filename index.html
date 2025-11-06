@@ -1,388 +1,378 @@
 <!--
 camera-app.html
-A single-file, GitHub Pages–ready camera web app that demonstrates many camera-related features
-Designed for development, experimentation, and extension.
+Single-file camera app focused on Android/Chrome selfie mode, full-window preview, detailed dev readouts, live face detection with landmarks,
+and a dynamic HUD that mounts a 10px horizontal bar between the eyes plus a perpendicular "cylinder" that scales with depth.
 
-Goals included:
-- enumerate and switch cameras
-- start/stop stream with chosen resolution
-- capture photo (canvas) + download
-- record video (MediaRecorder) + download
-- zoom control (via applyConstraints when supported)
-- torch (flash) toggle when supported
-- CSS & canvas filters, mirror mode, grid overlay
-- basic QR/barcode scanning using jsQR (optional)
-- optional face detection hook (face-api.js) with UI toggle
-- graceful feature detection and fallbacks
+Instructions:
+1) Save as camera-app.html and serve via HTTPS or http://localhost (e.g. `python -m http.server`).
+2) Open in Chrome on Android or Chrome on desktop. Allow camera permission. Use the front camera when prompted.
 
-Usage:
-1) Save this file as camera-app.html in a new Git repository.
-2) Open in a secure context (https or localhost). For local testing use a simple server (e.g., `python -m http.server`).
-3) Push to GitHub and enable GitHub Pages (branch: main, folder: /) to host.
-
-Notes & limitations:
-- Browser APIs limit some functionality (true hardware flash, manual exposure controls, low-level autofocus) on many devices. This app attempts best-effort control via MediaStreamTrack.applyConstraints and ImageCapture when available.
-- Face detection and barcode scanning rely on external libraries (loaded via CDN). Disable if you don't want them.
-
-Author: Precision Software Engineer (Riley)
+Notes:
+- Uses face-api.js (tiny detector + tiny 68-landmarks). Models are loaded from a CDN on demand.
+- The overlay mapping handles object-fit:cover so the HUD follows the face even when the video is scaled/cropped to fill the window.
+- The Dev Box shows real-time track settings, capabilities, landmark vectors, and computed depth metrics.
 -->
 
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Camera App — Feature Showcase</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>Camera — Selfie + Face HUD + Dev Readouts</title>
   <style>
-    :root{ --bg:#0b0f14; --panel:#0f1720; --muted:#9aa4b2; --accent:#06b6d4; }
-    body{font-family:Inter, system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial; margin:0; background:linear-gradient(180deg,#071021 0%, #081420 100%); color:#e6eef6}
-    .app{display:grid;grid-template-columns:1fr 360px;gap:18px;padding:18px;height:100vh;box-sizing:border-box}
-    .stage{background:linear-gradient(180deg,#081425 0%, #05202a 100%);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
-    video, canvas{max-width:100%;border-radius:8px;background:#000}
-    .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-    .panel{background:var(--panel);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;height:100%;overflow:auto}
-    label{font-size:12px;color:var(--muted)}
-    select,input,button{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
-    button{cursor:pointer}
-    .big{padding:12px 16px}
-    .row{display:flex;gap:8px;align-items:center}
+    html,body{height:100%;margin:0;background:#000;color:#fff;font-family:Inter,system-ui,Arial}
+    /* full-viewport camera stage */
+    .stage{position:fixed;inset:0;display:flex;}
+    .videoWrap{position:relative;flex:1;overflow:hidden;background:#000}
+    video{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:100%;height:100%;object-fit:cover;-webkit-transform:translate(-50%,-50%);}
+    canvas.overlay{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
 
-    /* overlays */
-    .overlay-grid{position:absolute;inset:12px;pointer-events:none;display:none}
-    .overlay-grid.show{display:block}
-    .overlay-grid svg{width:100%;height:100%}
+    /* controls + dev box */
+    .devBox{position:fixed;right:12px;top:12px;width:360px;max-height:calc(100vh - 24px);background:rgba(8,10,14,0.85);backdrop-filter:blur(6px);border-radius:10px;padding:10px;overflow:auto;border:1px solid rgba(255,255,255,0.04)}
+    .devBox h3{margin:4px 0 8px 0;font-size:15px}
+    .row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+    label{font-size:12px;color:#9aa4b2}
+    select,input,button{font-size:13px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    textarea.json{width:100%;height:240px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:#dfe8f2;padding:8px;border-radius:8px;font-family:monospace;font-size:12px}
+    .muted{color:#9aa4b2;font-size:12px}
+    .bigBtn{width:100%;padding:10px;margin-top:8px}
+    .status{font-size:13px;padding:6px;border-radius:6px;background:rgba(255,255,255,0.02);margin-bottom:8px}
 
-    /* small helper */
-    .muted{color:var(--muted);font-size:13px}
-    .status{font-size:13px;padding:8px;border-radius:8px;background:rgba(255,255,255,0.02)}
-    .note{font-size:12px;color:var(--muted)}
+    /* small badge */
+    .badge{position:fixed;left:12px;top:12px;padding:6px 10px;background:rgba(0,0,0,0.5);border-radius:999px;font-size:13px;border:1px solid rgba(255,255,255,0.04)}
+
+    /* responsive tweak */
+    @media (max-width:640px){ .devBox{width:320px;right:8px;top:8px;padding:8px} }
   </style>
 </head>
 <body>
-  <div class="app">
-    <main class="stage">
-      <!-- video container -->
-      <div style="width:100%;max-width:980px;position:relative;">
-        <video id="video" playsinline autoplay muted style="width:100%;height:auto; background:#000;" ></video>
-        <canvas id="photoCanvas" style="display:none;position:absolute;left:0;top:0;width:100%;height:100%;"></canvas>
-
-        <div class="overlay-grid" id="gridOverlay" aria-hidden="true">
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-            <g stroke="rgba(255,255,255,0.08)" stroke-width="0.6">
-              <line x1="33" y1="0" x2="33" y2="100" />
-              <line x1="66" y1="0" x2="66" y2="100" />
-              <line x1="0" y1="33" x2="100" y2="33" />
-              <line x1="0" y1="66" x2="100" y2="66" />
-            </g>
-          </svg>
-        </div>
-      </div>
-
-      <div class="controls">
-        <button id="startBtn" class="big">Start Camera</button>
-        <button id="stopBtn" class="big">Stop</button>
-        <button id="captureBtn" class="big">Capture Photo</button>
-        <button id="recordBtn" class="big">Start Recording</button>
-        <button id="downloadLastPhoto" class="big">Download Photo</button>
-        <button id="downloadLastVideo" class="big">Download Video</button>
-      </div>
-
-      <div style="margin-top:8px;width:100%;display:flex;justify-content:space-between;align-items:center;">
-        <div class="status" id="status">Idle</div>
-        <div class="muted">This demo runs best in Chrome, Edge, or recent Firefox on desktop or Chrome on Android.</div>
-      </div>
-    </main>
-
-    <aside class="panel">
-      <div>
-        <label>Camera device</label>
-        <select id="deviceSelect"></select>
-      </div>
-
-      <div>
-        <label>Resolution preset</label>
-        <select id="resolutionSelect">
-          <option value="default">Default</option>
-          <option value="qvga">320x240 (QVGA)</option>
-          <option value="vga">640x480 (VGA)</option>
-          <option value="hd">1280x720 (HD)</option>
-          <option value="fhd">1920x1080 (FHD)</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <label>Zoom</label>
-        <input id="zoomRange" type="range" min="1" max="3" step="0.01" value="1" style="flex:1" />
-      </div>
-
-      <div class="row">
-        <label>Torch (if supported)</label>
-        <button id="torchBtn">Toggle Torch</button>
-      </div>
-
-      <div class="row">
-        <label>Mirror preview</label>
-        <button id="mirrorBtn">Toggle Mirror</button>
-      </div>
-
-      <div>
-        <label>Filter</label>
-        <select id="filterSelect">
-          <option value="none">None</option>
-          <option value="grayscale(1)">Grayscale</option>
-          <option value="sepia(1)">Sepia</option>
-          <option value="contrast(1.2)">Contrast</option>
-          <option value="saturate(1.5)">Saturate</option>
-          <option value="blur(2px)">Blur</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <label>Grid overlay</label>
-        <button id="gridBtn">Toggle Grid</button>
-      </div>
-
-      <div>
-        <label>Barcode / QR scan</label>
-        <div class="row">
-          <button id="scanToggle">Start Scanner</button>
-          <div id="scanResult" class="muted">—</div>
-        </div>
-      </div>
-
-      <div>
-        <label>Face detection</label>
-        <div class="row">
-          <button id="faceToggle">Toggle Face Detection</button>
-          <div id="faceStatus" class="muted">Off</div>
-        </div>
-      </div>
-
-      <hr />
-      <div class="note">Developer notes: This is a single-file starter. Extend with server-side uploads, AI models, and native wrappers (Capacitor / Tauri / Electron) for native APIs.</div>
-    </aside>
+  <div class="stage">
+    <div class="videoWrap" id="videoWrap">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay" class="overlay"></canvas>
+    </div>
   </div>
 
-  <!-- External libraries (optional). They are loaded on demand to keep initial load light. -->
+  <div class="badge" id="badge">Status: idle</div>
+
+  <div class="devBox" id="devBox">
+    <h3>Dev Box — Live Readouts</h3>
+    <div class="status" id="status">idle</div>
+
+    <div class="row"><button id="startBtn">Start Camera</button><button id="stopBtn">Stop</button></div>
+    <div class="row"><label>Front camera</label><input type="checkbox" id="frontToggle" checked /></div>
+    <div class="row"><label>Face detection</label><button id="faceToggle">Start Face</button></div>
+    <div class="row"><label>Mount HUD</label><button id="hudToggle">Enable HUD</button></div>
+
+    <div style="margin-top:8px"><label>Detector input size</label>
+      <select id="inputSize"><option>128</option><option selected>224</option><option>320</option><option>416</option></select></div>
+
+    <div style="margin-top:8px"><label>Min score</label>
+      <input id="minScore" type="range" min="0" max="1" step="0.01" value="0.5" /><span id="minScoreLabel" class="muted">0.50</span></div>
+
+    <div style="margin-top:8px"><label>HUD scale base</label>
+      <input id="hudScale" type="range" min="0.2" max="3" step="0.01" value="1" /><span id="hudScaleLabel" class="muted">1.00</span></div>
+
+    <div style="margin-top:8px"><label>Dev JSON (real-time)</label>
+      <textarea id="devJson" class="json" readonly></textarea></div>
+
+    <div style="margin-top:8px"><button id="downloadSnapshot" class="bigBtn">Download Snapshot (PNG)</button></div>
+
+    <div class="muted" style="margin-top:8px;">Note: Allow camera permission. Models load from CDN; first load may take a second.</div>
+  </div>
+
+  <!-- scripts -->
   <script>
-  // --- Utility & state ---
+  // Minimal, focused implementation per spec.
+
   const state = {
     stream: null,
     track: null,
-    devices: [],
-    recorder: null,
-    recordedChunks: [],
-    lastPhotoBlob: null,
-    lastVideoBlob: null,
-    scanning: false,
+    faceModelLoaded: false,
     detectingFaces: false,
-    faceModelLoaded: false
+    hudEnabled: false,
+    baseInterEye: null,
+    lastDetection: null,
+    fps: 0
   };
 
   const video = document.getElementById('video');
-  const photoCanvas = document.getElementById('photoCanvas');
-  const deviceSelect = document.getElementById('deviceSelect');
-  const resolutionSelect = document.getElementById('resolutionSelect');
+  const overlay = document.getElementById('overlay');
+  const overlayCtx = overlay.getContext('2d');
+  const videoWrap = document.getElementById('videoWrap');
+
+  // UI
+  const badge = document.getElementById('badge');
+  const status = document.getElementById('status');
+  const devJson = document.getElementById('devJson');
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
-  const captureBtn = document.getElementById('captureBtn');
-  const recordBtn = document.getElementById('recordBtn');
-  const downloadPhotoBtn = document.getElementById('downloadLastPhoto');
-  const downloadVideoBtn = document.getElementById('downloadLastVideo');
-  const statusEl = document.getElementById('status');
-  const zoomRange = document.getElementById('zoomRange');
-  const torchBtn = document.getElementById('torchBtn');
-  const mirrorBtn = document.getElementById('mirrorBtn');
-  const filterSelect = document.getElementById('filterSelect');
-  const gridBtn = document.getElementById('gridBtn');
-  const gridOverlay = document.getElementById('gridOverlay');
-  const scanToggle = document.getElementById('scanToggle');
-  const scanResult = document.getElementById('scanResult');
-  const scanCanvas = document.createElement('canvas');
   const faceToggle = document.getElementById('faceToggle');
-  const faceStatus = document.getElementById('faceStatus');
+  const hudToggle = document.getElementById('hudToggle');
+  const frontToggle = document.getElementById('frontToggle');
+  const inputSizeSel = document.getElementById('inputSize');
+  const minScoreEl = document.getElementById('minScore');
+  const minScoreLabel = document.getElementById('minScoreLabel');
+  const hudScale = document.getElementById('hudScale');
+  const hudScaleLabel = document.getElementById('hudScaleLabel');
+  const downloadSnapshot = document.getElementById('downloadSnapshot');
 
-  // --- Device enumeration ---
-  async function refreshDevices(){
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    state.devices = devices.filter(d => d.kind === 'videoinput');
-    deviceSelect.innerHTML = '';
-    state.devices.forEach((d,i)=>{
-      const opt = document.createElement('option'); opt.value = d.deviceId; opt.textContent = d.label || `Camera ${i+1}`; deviceSelect.appendChild(opt);
-    });
+  minScoreEl.addEventListener('input', ()=>{ minScoreLabel.textContent = Number(minScoreEl.value).toFixed(2); });
+  hudScale.addEventListener('input', ()=>{ hudScaleLabel.textContent = Number(hudScale.value).toFixed(2); });
+
+  // helpers for mapping when video uses object-fit:cover
+  function calcCoverTransform(){
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const cw = overlay.clientWidth, ch = overlay.clientHeight;
+    if(!vw||!vh) return null;
+    const scale = Math.max(cw / vw, ch / vh);
+    const displayW = vw * scale, displayH = vh * scale;
+    const offsetX = (displayW - cw) / 2;
+    const offsetY = (displayH - ch) / 2;
+    return {scale, offsetX, offsetY};
   }
 
-  // --- Start/Stop stream ---
-  function resolutionConstraintPreset(preset){
-    switch(preset){
-      case 'qvga': return {width:320,height:240};
-      case 'vga': return {width:640,height:480};
-      case 'hd': return {width:1280,height:720};
-      case 'fhd': return {width:1920,height:1080};
-      default: return {}; }
+  function videoToOverlayCoords(pt){
+    // pt: {x,y} in video intrinsic pixels (videoWidth/videoHeight)
+    const t = calcCoverTransform(); if(!t) return pt;
+    return { x: Math.round(pt.x * t.scale - t.offsetX), y: Math.round(pt.y * t.scale - t.offsetY) };
   }
 
-  async function startCamera(){
-    if(state.stream){ stopCamera(); }
-    const deviceId = deviceSelect.value || undefined;
-    const preset = resolutionSelect.value;
-    const constraints = { video: { deviceId: deviceId ? {exact: deviceId} : undefined, ...resolutionConstraintPreset(preset) }, audio: true };
-    status('Starting camera...');
+  // draw HUD elements (bar + cylinder)
+  function drawHud(detection){
+    if(!detection) return;
+    const landmarks = detection.landmarks;
+    // left and right eye centers
+    const leftEye = averagePoint(landmarks.getLeftEye());
+    const rightEye = averagePoint(landmarks.getRightEye());
+    // center between eyes
+    const center = { x: (leftEye.x + rightEye.x)/2, y: (leftEye.y + rightEye.y)/2 };
+    // inter-eye distance (pixels) -> depth proxy
+    const interEye = distance(leftEye, rightEye);
+    if(!state.baseInterEye) state.baseInterEye = interEye; // baseline on first detection
+    // scale factor relative to baseline
+    const scaleFactor = (interEye / state.baseInterEye) * Number(hudScale.value);
+
+    // map to overlay display coords
+    const c = videoToOverlayCoords(center);
+    const ieDisplay = interEye * calcCoverTransform().scale;
+
+    // horizontal bar
+    const barHeight = 10; // fixed 10px thickness as requested
+    const baseBarWidth = 200; // base width in video pixels; scaled by factor
+    const barWidth = Math.max(24, baseBarWidth * scaleFactor);
+
+    overlayCtx.save();
+    overlayCtx.translate(0,0);
+    // horizontal bar (centered at c.x,c.y)
+    overlayCtx.fillStyle = 'rgba(255,80,80,0.95)';
+    overlayCtx.fillRect(c.x - barWidth/2, c.y - barHeight/2, barWidth, barHeight);
+
+    // draw small eye marker
+    overlayCtx.fillStyle = 'rgba(255,255,255,0.8)';
+    overlayCtx.beginPath(); overlayCtx.arc(c.x, c.y, 4, 0, Math.PI*2); overlayCtx.fill();
+
+    // cylinder: perpendicular (vertical) line centered at c. We'll render a simple 2.5D cylinder
+    const cylWidth = Math.max(8, 12 * scaleFactor);
+    const cylLen = Math.max(30, 80 * scaleFactor);
+
+    // draw back ellipse (darker)
+    overlayCtx.fillStyle = 'rgba(60,120,220,0.45)';
+    overlayCtx.beginPath(); overlayCtx.ellipse(c.x, c.y + cylLen/2, cylWidth, cylWidth/2, 0, 0, Math.PI*2); overlayCtx.fill();
+    // draw body
+    overlayCtx.fillStyle = 'rgba(80,160,255,0.6)';
+    overlayCtx.fillRect(c.x - cylWidth/2, c.y - cylLen/2, cylWidth, cylLen);
+    // draw front ellipse (lighter)
+    overlayCtx.fillStyle = 'rgba(140,200,255,0.95)';
+    overlayCtx.beginPath(); overlayCtx.ellipse(c.x, c.y - cylLen/2, cylWidth+2, (cylWidth+2)/2, 0, 0, Math.PI*2); overlayCtx.fill();
+
+    // optional: small line showing inter-eye distance
+    overlayCtx.strokeStyle = 'rgba(255,255,255,0.6)'; overlayCtx.lineWidth = 2;
+    const le = videoToOverlayCoords(leftEye); const re = videoToOverlayCoords(rightEye);
+    overlayCtx.beginPath(); overlayCtx.moveTo(le.x, le.y); overlayCtx.lineTo(re.x, re.y); overlayCtx.stroke();
+
+    overlayCtx.restore();
+
+    // store last detection data
+    state.lastDetection = {center:c, interEye:ieDisplay, scaleFactor};
+  }
+
+  function averagePoint(points){
+    const p = points.reduce((acc,pt)=>{ acc.x += pt.x; acc.y += pt.y; return acc; }, {x:0,y:0});
+    return {x: p.x / points.length, y: p.y / points.length};
+  }
+  function distance(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
+
+  // drawing & clearing overlay
+  function clearOverlay(){ overlayCtx.clearRect(0,0,overlay.width,overlay.height); }
+
+  // load face-api and models
+  let faceApiLoaded = false;
+  async function ensureFaceModels(){ if(faceApiLoaded) return;
     try{
-      state.stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = state.stream;
-      state.track = state.stream.getVideoTracks()[0];
-      status('Camera running — ' + (state.track.label || 'unknown device'));
-      await refreshCapabilitiesUI();
-    }catch(err){
-      console.error(err); status('Error starting camera: ' + err.message);
-    }
+      await loadScript('https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js');
+      const base = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/models';
+      // tiny detector + tiny landmark model
+      await faceapi.nets.tinyFaceDetector.loadFromUri(base);
+      await faceapi.nets.faceLandmark68TinyNet.loadFromUri(base);
+      faceApiLoaded = true; state.faceModelLoaded = true; status.textContent = 'Face models loaded'; badge.textContent = 'Models loaded';
+    }catch(e){ console.error('face model load failed',e); status.textContent = 'Model load failed'; badge.textContent = 'Model load failed'; throw e; }
   }
 
-  function stopCamera(){
-    if(state.stream){ state.stream.getTracks().forEach(t => t.stop()); state.stream = null; state.track = null; video.srcObject = null; status('Stopped'); }
-  }
-
-  // --- Capture photo ---
-  function capturePhoto(){
-    if(!state.stream){ status('No camera'); return; }
-    photoCanvas.width = video.videoWidth; photoCanvas.height = video.videoHeight;
-    const ctx = photoCanvas.getContext('2d');
-    // apply mirror if needed
-    if(video.style.transform && video.style.transform.includes('scaleX(-1)')){
-      ctx.translate(photoCanvas.width, 0); ctx.scale(-1,1);
-    }
-    // apply filter by drawing then applying CSS filters is tricky; we replicate video CSS filters on canvas via context.filter when available
-    ctx.filter = window.getComputedStyle(video).getPropertyValue('filter') || 'none';
-    ctx.drawImage(video, 0, 0, photoCanvas.width, photoCanvas.height);
-    ctx.filter = 'none';
-    photoCanvas.style.display = 'block';
-
-    photoCanvas.toBlob(blob => { state.lastPhotoBlob = blob; status('Photo captured'); }, 'image/png');
-  }
-
-  // --- Video recording ---
-  function startRecording(){
-    if(!state.stream){ status('No stream to record'); return; }
-    state.recordedChunks = [];
-    const options = { mimeType: 'video/webm;codecs=vp9,opus' };
-    try{
-      state.recorder = new MediaRecorder(state.stream, options);
-    }catch(e){
-      state.recorder = new MediaRecorder(state.stream);
-    }
-    state.recorder.ondataavailable = e => { if(e.data && e.data.size) state.recordedChunks.push(e.data); };
-    state.recorder.onstop = () => {
-      state.lastVideoBlob = new Blob(state.recordedChunks, {type:'video/webm'});
-      status('Recording stopped — ' + Math.round(state.lastVideoBlob.size/1024) + ' KB');
-    };
-    state.recorder.start();
-    status('Recording...');
-  }
-  function stopRecording(){ if(state.recorder && state.recorder.state !== 'inactive') state.recorder.stop(); }
-
-  // --- Downloads ---
-  function downloadBlob(blob, filename){ if(!blob){ status('Nothing to download'); return; } const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
-
-  // --- Feature detection & advanced controls ---
-  async function refreshCapabilitiesUI(){
-    if(!state.track) return;
-    const capabilities = state.track.getCapabilities ? state.track.getCapabilities() : {};
-    // zoom
-    if(capabilities.zoom){ zoomRange.min = capabilities.zoom.min; zoomRange.max = capabilities.zoom.max; zoomRange.step = capabilities.zoom.step || 0.01; zoomRange.value = capabilities.zoom.min; zoomRange.disabled = false; }
-    else { zoomRange.disabled = true; }
-
-    // torch support detection
-    state.torchSupported = !!(capabilities.torch);
-    torchBtn.disabled = !state.torchSupported;
-
-    // load device list labels
-    await refreshDevices();
-  }
-
-  async function setZoom(value){ if(!state.track) return; try{ await state.track.applyConstraints({ advanced: [{zoom: value}] }); status('Zoom set to ' + value); }catch(e){ console.warn(e); status('Zoom failed: ' + e.message); } }
-
-  async function toggleTorch(){ if(!state.track) return; if(!state.torchSupported){ status('Torch not supported on this device'); return; } try{ const current = state.torchOn || false; await state.track.applyConstraints({ advanced: [{ torch: !current }] }); state.torchOn = !current; status('Torch ' + (state.torchOn ? 'on' : 'off')); }catch(e){ console.warn('torch error',e); status('Torch toggle failed: ' + e.message); } }
-
-  // --- Mirror & filter ---
-  function toggleMirror(){ if(video.style.transform && video.style.transform.includes('scaleX(-1)')){ video.style.transform = ''; } else { video.style.transform = 'scaleX(-1)'; } }
-  function setFilter(val){ video.style.filter = val; }
-
-  // --- Grid overlay ---
-  function toggleGrid(){ gridOverlay.classList.toggle('show'); }
-
-  // --- Scanner (QR / barcode using jsQR) ---
-  let jsqrLoaded = false;
-  async function ensureJsQR(){ if(jsqrLoaded) return; await loadScript('https://unpkg.com/jsqr/dist/jsQR.js'); jsqrLoaded = true; }
-  async function scannerLoop(){
-    if(!state.scanning) return;
-    if(!state.stream) return;
-    scanCanvas.width = video.videoWidth; scanCanvas.height = video.videoHeight;
-    const ctx = scanCanvas.getContext('2d');
-    ctx.drawImage(video,0,0,scanCanvas.width,scanCanvas.height);
-    const imageData = ctx.getImageData(0,0,scanCanvas.width,scanCanvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height);
-    if(code){ scanResult.textContent = code.data; }
-    else { scanResult.textContent = '—'; }
-    requestAnimationFrame(scannerLoop);
-  }
-
-  async function toggleScanner(){
-    if(!state.scanning){
-      await ensureJsQR(); state.scanning = true; scanToggle.textContent = 'Stop Scanner'; status('Scanner running'); requestAnimationFrame(scannerLoop);
-    } else { state.scanning = false; scanToggle.textContent = 'Start Scanner'; scanResult.textContent = '—'; status('Scanner stopped'); }
-  }
-
-  // --- Face detection (using face-api.js optional) ---
-  async function ensureFaceAPI(){ if(state.faceModelLoaded) return;
-    // load face-api and models (tiny face detector)
-    await loadScript('https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js');
-    // load models from official CDN - these are relatively small (tiny_face_detector)
-    await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/models');
-    state.faceModelLoaded = true;
-  }
+  // face detection loop
+  let lastLoopTime = performance.now();
   async function faceLoop(){
-    if(!state.detectingFaces) return;
-    if(!state.faceModelLoaded) await ensureFaceAPI();
-    if(!state.stream) return;
-    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
-    faceStatus.textContent = detections.length + ' face(s)';
+    if(!state.detectingFaces || !state.stream) return;
+    if(!faceApiLoaded) await ensureFaceModels();
+
+    const now = performance.now();
+    const dt = now - lastLoopTime; lastLoopTime = now; state.fps = 1000 / Math.max(dt,1);
+
+    // detect single face with landmarks
+    const inputSize = Number(inputSizeSel.value || 224);
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: Number(minScoreEl.value) });
+    const result = await faceapi.detectSingleFace(video, options).withFaceLandmarks(true);
+
+    clearOverlay();
+    if(result){
+      // draw landmarks for debugging
+      const drawLandmarks = true;
+      if(drawLandmarks){
+        overlayCtx.fillStyle = 'rgba(0,255,120,0.9)';
+        result.landmarks.positions.forEach(p=>{ const d = videoToOverlayCoords(p); overlayCtx.fillRect(d.x-1,d.y-1,3,3); });
+      }
+
+      if(state.hudEnabled) drawHud(result);
+      status.textContent = 'Face detected — score ' + (result.score||0).toFixed(2);
+      badge.textContent = `FPS: ${state.fps.toFixed(1)}  Faces:1`;
+    } else {
+      status.textContent = 'No face'; badge.textContent = `FPS: ${state.fps.toFixed(1)}  Faces:0`;
+      state.lastDetection = null;
+    }
+
+    // update dev JSON
+    const info = await gatherDevInfo(result);
+    devJson.value = JSON.stringify(info, null, 2);
+
     requestAnimationFrame(faceLoop);
   }
-  async function toggleFaceDetection(){
-    if(!state.detectingFaces){ state.detectingFaces = true; faceToggle.textContent = 'Stop Face Detection'; status('Face detection on'); faceLoop(); }
-    else { state.detectingFaces = false; faceToggle.textContent = 'Start Face Detection'; faceStatus.textContent = 'Off'; status('Face detection off'); }
+
+  async function gatherDevInfo(result){
+    const track = state.track;
+    const settings = track && track.getSettings ? track.getSettings() : null;
+    const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+    const constraints = track && track.getConstraints ? track.getConstraints() : null;
+
+    return {
+      time: new Date().toISOString(),
+      streamActive: !!state.stream,
+      settings, caps, constraints,
+      lastDetection: state.lastDetection,
+      detectionRaw: result ? {
+        score: result.score,
+        box: result.detection.box,
+        landmarksCount: result.landmarks.positions.length,
+      } : null
+    };
   }
 
-  // --- Helpers ---
-  function status(txt){ statusEl.textContent = txt; }
-  function loadScript(src){ return new Promise((res,rej)=>{ const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+  // mapping overlay resolution to CSS size for crisp rendering
+  function resizeOverlay(){
+    const w = videoWrap.clientWidth, h = videoWrap.clientHeight;
+    const ratio = window.devicePixelRatio || 1;
+    overlay.style.width = w + 'px'; overlay.style.height = h + 'px';
+    overlay.width = Math.round(w * ratio); overlay.height = Math.round(h * ratio);
+    overlayCtx.setTransform(ratio,0,0,ratio,0,0); // scale drawing operations to CSS pixels
+  }
+  window.addEventListener('resize', resizeOverlay);
 
-  // --- event wiring ---
+  // start/stop camera
+  async function startCamera(){
+    if(state.stream) stopCamera();
+    const useFront = frontToggle.checked;
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: useFront ? 'user' : 'environment',
+        width: { ideal: 1280 }, height: { ideal: 1280 }
+      }
+    };
+    try{
+      state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = state.stream; state.track = state.stream.getVideoTracks()[0];
+      await video.play();
+      resizeOverlay(); status.textContent = 'Camera running'; badge.textContent = 'Camera running';
+    }catch(e){ console.error(e); status.textContent = 'Camera error: '+e.message; badge.textContent = 'Camera error'; }
+  }
+
+  function stopCamera(){ if(state.stream){ state.stream.getTracks().forEach(t=>t.stop()); state.stream = null; state.track = null; video.srcObject = null; status.textContent = 'Stopped'; badge.textContent = 'Stopped'; clearOverlay(); } }
+
+  // toggles
   startBtn.addEventListener('click', startCamera);
   stopBtn.addEventListener('click', stopCamera);
-  captureBtn.addEventListener('click', capturePhoto);
-  recordBtn.addEventListener('click', ()=>{
-    if(!state.recorder || state.recorder.state === 'inactive'){ startRecording(); recordBtn.textContent = 'Stop Recording'; }
-    else { stopRecording(); recordBtn.textContent = 'Start Recording'; }
+  faceToggle.addEventListener('click', async ()=>{
+    if(!state.detectingFaces){
+      if(!faceApiLoaded) await ensureFaceModels();
+      state.detectingFaces = true; faceToggle.textContent = 'Stop Face'; lastLoopTime = performance.now(); faceLoop();
+    } else { state.detectingFaces = false; faceToggle.textContent = 'Start Face'; badge.textContent = 'Face stopped'; }
   });
-  downloadPhotoBtn.addEventListener('click', ()=>downloadBlob(state.lastPhotoBlob, 'photo.png'));
-  downloadVideoBtn.addEventListener('click', ()=>downloadBlob(state.lastVideoBlob, 'video.webm'));
-  deviceSelect.addEventListener('change', ()=>{ startCamera(); });
-  resolutionSelect.addEventListener('change', ()=>{ startCamera(); });
-  zoomRange.addEventListener('input', ()=> setZoom(Number(zoomRange.value)));
-  torchBtn.addEventListener('click', toggleTorch);
-  mirrorBtn.addEventListener('click', ()=>{ toggleMirror(); });
-  filterSelect.addEventListener('change', ()=> setFilter(filterSelect.value));
-  gridBtn.addEventListener('click', toggleGrid);
-  scanToggle.addEventListener('click', toggleScanner);
-  faceToggle.addEventListener('click', toggleFaceDetection);
 
-  // On load: enumerate devices and attempt to set a default camera label
-  (async ()=>{ if(!navigator.mediaDevices) { status('Your browser does not support MediaDevices API.'); return; } await refreshDevices(); status('Ready — select a camera and start.'); })();
+  hudToggle.addEventListener('click', ()=>{ state.hudEnabled = !state.hudEnabled; hudToggle.textContent = state.hudEnabled ? 'Disable HUD' : 'Enable HUD'; });
 
-  // Clean up on page unload
-  window.addEventListener('beforeunload', ()=>{ stopCamera(); if(state.recorder && state.recorder.state!=='inactive') state.recorder.stop(); });
+  // snapshot
+  downloadSnapshot.addEventListener('click', ()=>{
+    // capture composed overlay + video frame
+    const w = overlay.width, h = overlay.height; const ratio = window.devicePixelRatio || 1;
+    const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h; const tctx = tmp.getContext('2d');
+    // draw video frame scaled to overlay
+    // draw using drawImage(video, sx,sy,sw,sh, dx,dy,dw,dh) mapping when object-fit:cover
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const cw = overlay.clientWidth, ch = overlay.clientHeight;
+    const scale = Math.max(cw / vw, ch / vh);
+    const displayW = vw * scale, displayH = vh * scale;
+    const offsetX = (displayW - cw) / 2; const offsetY = (displayH - ch) / 2;
+    // source crop in video intrinsic pixels
+    const sx = offsetX / scale; const sy = offsetY / scale; const sw = cw / scale; const sh = ch / scale;
+    tctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+    // draw overlay on top
+    tctx.drawImage(overlay, 0, 0, w, h);
+    tmp.toBlob(b=>{ const url = URL.createObjectURL(b); const a = document.createElement('a'); a.href = url; a.download = 'snapshot.png'; a.click(); URL.revokeObjectURL(url); });
+  });
+
+  function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+
+  // auto-start camera if permission exists
+  (async ()=>{ try{ await refreshDevices(); }catch(e){} })();
+
+  async function refreshDevices(){ try{ const devs = await navigator.mediaDevices.enumerateDevices(); /* could populate selectors */ }catch(e){} }
+
+  // keep dev JSON updated even when not detecting
+  (function devLoop(){
+    (async ()=>{
+      const info = await gatherDevInfo(null);
+      devJson.value = JSON.stringify(info, null, 2);
+    })();
+    setTimeout(devLoop, 500);
+  })();
+
+  async function gatherDevInfo(result){
+    const t = state.track;
+    const settings = t && t.getSettings ? t.getSettings() : null;
+    const caps = t && t.getCapabilities ? t.getCapabilities() : null;
+    const constraints = t && t.getConstraints ? t.getConstraints() : null;
+    return {
+      time: new Date().toISOString(),
+      camera: { facing: frontToggle.checked ? 'user' : 'environment' },
+      streamActive: !!state.stream,
+      settings, caps, constraints,
+      hudEnabled: state.hudEnabled,
+      detection: state.lastDetection || null
+    };
+  }
+
+  // convenience: start camera automatically for faster testing (comment out if undesired)
+  // startCamera();
+
   </script>
 </body>
 </html>
