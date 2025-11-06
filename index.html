@@ -67,8 +67,10 @@
     async function detectFaces() {
       const predictions = await model.estimateFaces(video, false);
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.save();                          // ← NEW
+      ctx.scale(-1, 1);                    // ← NEW (flip horizontally)
+      ctx.clearRect(-canvas.width, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
 
       if (predictions.length > 0) {
         predictions.forEach(pred => {
@@ -76,11 +78,17 @@
           const [x2, y2] = pred.bottomRight;
           const width = x2 - x1;
           const height = y2 - y1;
+
+          // Adjust x for mirrored coordinate system
+          const mirroredX1 = canvas.width - x2;
+
           ctx.strokeStyle = "lime";
           ctx.lineWidth = 3;
-          ctx.strokeRect(x1, y1, width, height);
+          ctx.strokeRect(mirroredX1, y1, width, height);
         });
       }
+
+      ctx.restore();                       // ← NEW
 
       requestAnimationFrame(detectFaces);
     }
