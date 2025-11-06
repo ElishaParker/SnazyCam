@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Live Face Tracking – BlazeFace (Smoothed + Crosshair + Coordinates)</title>
+  <title>Live Face Tracking – BlazeFace (Corrected Labels)</title>
 
-  <!-- TensorFlow.js core + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -111,7 +110,7 @@
         const [x2, y2] = smoothedBox.bottomRight;
         const width = x2 - x1, height = y2 - y1;
 
-        // ✅ Draw mirrored bounding box
+        // Draw mirrored bounding box
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
@@ -132,55 +131,67 @@
             { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
           ];
 
+          // Draw mirrored points (but fix text direction)
           ctx.save();
           ctx.scale(-1, 1);
           ctx.translate(-canvas.width, 0);
 
-          // --- Draw all facial points ---
           points.forEach(pt => {
-            ctx.shadowBlur = 0;
+            // Draw dots normally (mirrored space)
             ctx.fillStyle = pt.color;
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
             ctx.fill();
+
+            // Flip text drawing back to normal
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.translate(-canvas.width, 0);
+            const mirroredX = canvas.width - pt.x;
             ctx.font = "14px Arial";
             ctx.fillStyle = "#fff";
-            ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
+            ctx.fillText(pt.name, mirroredX + 6, pt.y - 6);
+            ctx.restore();
           });
 
-          // --- Draw dynamic crosshair centered on nose ---
+          // --- Crosshair centered on nose ---
           const noseX = nose[0];
           const noseY = nose[1];
 
           ctx.shadowBlur = 0;
           ctx.lineWidth = 2;
 
-          // Horizontal line (red)
+          // Horizontal (red)
           ctx.strokeStyle = "red";
           ctx.beginPath();
           ctx.moveTo(0, noseY);
           ctx.lineTo(canvas.width, noseY);
           ctx.stroke();
 
-          // Vertical line (lime)
+          // Vertical (lime)
           ctx.strokeStyle = "lime";
           ctx.beginPath();
           ctx.moveTo(noseX, 0);
           ctx.lineTo(noseX, canvas.height);
           ctx.stroke();
 
-          // White center marker
+          // White center dot
           ctx.fillStyle = "white";
           ctx.beginPath();
           ctx.arc(noseX, noseY, 3, 0, 2 * Math.PI);
           ctx.fill();
 
-          // --- Display numeric X/Y coordinates ---
+          // Coordinate display (mirrored correctly)
+          ctx.save();
+          ctx.scale(-1, 1);
+          ctx.translate(-canvas.width, 0);
           ctx.font = "16px monospace";
           ctx.fillStyle = "#00FFFF";
           const displayX = Math.round(noseX);
           const displayY = Math.round(noseY);
-          ctx.fillText(`X: ${displayX}, Y: ${displayY}`, noseX + 10, noseY - 10);
+          const mirroredX = canvas.width - noseX;
+          ctx.fillText(`X: ${displayX}, Y: ${displayY}`, mirroredX + 10, noseY - 10);
+          ctx.restore();
 
           ctx.restore();
         }
