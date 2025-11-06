@@ -3,23 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fast FaceMesh Overlay</title>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest"></script>
+  <title>Fast BlazeFace Grid Tracker</title>
+
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.18.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.18.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.18.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+
   <style>
     html, body {
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
       overflow: hidden;
       background: #000;
-      height: 100%;
-      width: 100%;
+      height: 100%; width: 100%;
     }
-    #video, #overlay {
+    video, canvas {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
       object-fit: cover;
     }
   </style>
@@ -28,61 +30,74 @@
   <video id="video" autoplay muted playsinline></video>
   <canvas id="overlay"></canvas>
 
-  <script type="module">
-    import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
-
-    const video = document.getElementById("video");
-    const canvas = document.getElementById("overlay");
-    const ctx = canvas.getContext("2d");
-    let faceLandmarker, lastTime = -1;
+  <script>
+    let model, video, canvas, ctx;
+    const GRID_ROWS = 15, GRID_COLS = 15;
 
     async function init() {
-      const resolver = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-      );
-      faceLandmarker = await FaceLandmarker.createFromOptions(resolver, {
-        baseOptions: {
-          modelAssetPath: "https://storage.googleapis.com/mediapipe-assets/face_landmarker.task",
-        },
-        runningMode: "VIDEO",
-        numFaces: 1,
-      });
+      await tf.setBackend('webgl');
+      await tf.ready();
+      model = await blazeface.load({maxFaces: 1});
+      console.log("BlazeFace ready");
 
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } });
+      // Camera
+      video = document.getElementById("video");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: 640, height: 480 }
+      });
       video.srcObject = stream;
       await video.play();
 
+      canvas = document.getElementById("overlay");
+      ctx = canvas.getContext("2d");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      video.requestVideoFrameCallback(detect);
+      video.requestVideoFrameCallback(processFrame);
     }
 
-    function drawLandmarks(landmarks) {
+    function drawGrid(face) {
+      const [x1, y1] = face.topLeft;
+      const [x2, y2] = face.bottomRight;
+      const w = x2 - x1, h = y2 - y1;
+      const dx = w / (GRID_COLS - 1);
+      const dy = h / (GRID_ROWS - 1);
+
+      ctx.strokeStyle = "rgba(0,255,0,0.4)";
+      ctx.lineWidth = 0.6;
+
+      for (let r = 0; r < GRID_ROWS; r++) {
+        ctx.beginPath();
+        for (let c = 0; c < GRID_COLS; c++) {
+          const px = x1 + c * dx;
+          const py = y1 + r * dy;
+          c === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      for (let c = 0; c < GRID_COLS; c++) {
+        ctx.beginPath();
+        for (let r = 0; r < GRID_ROWS; r++) {
+          const px = x1 + c * dx;
+          const py = y1 + r * dy;
+          r === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+    }
+
+    async function processFrame(now, metadata) {
+      await tf.nextFrame();
+      const predictions = await tf.tidy(() => model.estimateFaces(video, false));
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "rgba(0,255,0,0.8)";
-      for (const lm of landmarks) {
-        ctx.beginPath();
-        ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 1.2, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-    }
 
-    async function detect(now, metadata) {
-      if (!faceLandmarker) return;
-      if (metadata.mediaTime === lastTime) {
-        video.requestVideoFrameCallback(detect);
-        return;
-      }
-      lastTime = metadata.mediaTime;
-
-      const results = faceLandmarker.detectForVideo(video, metadata.mediaTime);
-      if (results && results.faceLandmarks.length > 0) {
-        drawLandmarks(results.faceLandmarks[0]);
+      if (predictions.length > 0) {
+        drawGrid(predictions[0]);
       }
 
-      video.requestVideoFrameCallback(detect);
+      video.requestVideoFrameCallback(processFrame);
     }
 
     init();
