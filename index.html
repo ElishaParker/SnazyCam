@@ -3,25 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fast BlazeFace Grid Tracker</title>
+  <title>Live Face Tracking – BlazeFace</title>
 
-  <!-- TensorFlow.js -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.18.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.18.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.18.0"></script>
+  <!-- TensorFlow.js core + BlazeFace -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
 
   <style>
-    html, body {
-      margin: 0; padding: 0;
+    body {
+      margin: 0;
       overflow: hidden;
       background: #000;
-      height: 100%; width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
     }
-    video, canvas {
+    canvas, video {
       position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
+      width: 100vw;
+      height: 100vh;
       object-fit: cover;
     }
   </style>
@@ -32,75 +35,57 @@
 
   <script>
     let model, video, canvas, ctx;
-    const GRID_ROWS = 15, GRID_COLS = 15;
 
-    async function init() {
-      await tf.setBackend('webgl');
-      await tf.ready();
-      model = await blazeface.load({maxFaces: 1});
-      console.log("BlazeFace ready");
-
-      // Camera
+    async function setupCamera() {
       video = document.getElementById("video");
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: 640, height: 480 }
+        video: { facingMode: "user" },
+        audio: false
       });
       video.srcObject = stream;
-      await video.play();
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => resolve(video);
+      });
+    }
+
+    async function main() {
+      await tf.setBackend("webgl");
+      model = await blazeface.load();
+
+      await setupCamera();
+      video.play();
 
       canvas = document.getElementById("overlay");
       ctx = canvas.getContext("2d");
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      video.requestVideoFrameCallback(processFrame);
+      detectFaces();
     }
 
-    function drawGrid(face) {
-      const [x1, y1] = face.topLeft;
-      const [x2, y2] = face.bottomRight;
-      const w = x2 - x1, h = y2 - y1;
-      const dx = w / (GRID_COLS - 1);
-      const dy = h / (GRID_ROWS - 1);
-
-      ctx.strokeStyle = "rgba(0,255,0,0.4)";
-      ctx.lineWidth = 0.6;
-
-      for (let r = 0; r < GRID_ROWS; r++) {
-        ctx.beginPath();
-        for (let c = 0; c < GRID_COLS; c++) {
-          const px = x1 + c * dx;
-          const py = y1 + r * dy;
-          c === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-        }
-        ctx.stroke();
-      }
-      for (let c = 0; c < GRID_COLS; c++) {
-        ctx.beginPath();
-        for (let r = 0; r < GRID_ROWS; r++) {
-          const px = x1 + c * dx;
-          const py = y1 + r * dy;
-          r === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-        }
-        ctx.stroke();
-      }
-    }
-
-    async function processFrame(now, metadata) {
-      await tf.nextFrame();
-      const predictions = await tf.tidy(() => model.estimateFaces(video, false));
+    async function detectFaces() {
+      const predictions = await model.estimateFaces(video, false);
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       if (predictions.length > 0) {
-        drawGrid(predictions[0]);
+        predictions.forEach(pred => {
+          const [x1, y1] = pred.topLeft;
+          const [x2, y2] = pred.bottomRight;
+          const width = x2 - x1;
+          const height = y2 - y1;
+          ctx.strokeStyle = "lime";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x1, y1, width, height);
+        });
       }
 
-      video.requestVideoFrameCallback(processFrame);
+      requestAnimationFrame(detectFaces);
     }
 
-    init();
+    main();
   </script>
 </body>
 </html>
