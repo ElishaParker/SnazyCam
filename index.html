@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>  
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -95,12 +95,14 @@
           const [x2, y2] = pred.bottomRight;
           const width = x2 - x1;
           const height = y2 - y1;
-          const mirroredX1 = canvas.width - x2;
+
+          // ✅ Fixed mirrored bounding box alignment
+          const mirroredX = canvas.width - x1 - width;
 
           // Draw bounding box
           ctx.strokeStyle = "lime";
           ctx.lineWidth = 3;
-          ctx.strokeRect(mirroredX1, y1, width, height);
+          ctx.strokeRect(mirroredX, y1, width, height);
 
           // --- Draw labeled facial landmarks ---
           if (pred.landmarks) {
