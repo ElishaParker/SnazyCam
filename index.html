@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Live Face Tracking – BlazeFace (Smoothed Landmarks)</title>
+  <title>Live Face Tracking – BlazeFace (Smoothed + Corrected Mirror)</title>
 
   <!-- TensorFlow.js core + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -39,26 +39,17 @@
 
   <script>
     let model, video, canvas, ctx;
-
-    // Stores previous smoothed coordinates
-    let smoothedBox = null;
-    let smoothedLandmarks = null;
-    const SMOOTHING_ALPHA = 0.5; // balanced
+    let smoothedBox = null, smoothedLandmarks = null;
+    const SMOOTHING_ALPHA = 0.5;
 
     async function setupCamera() {
       video = document.getElementById("video");
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       });
       video.srcObject = stream;
-      return new Promise(resolve => {
-        video.onloadedmetadata = () => resolve(video);
-      });
+      return new Promise(r => video.onloadedmetadata = () => r(video));
     }
 
     async function main() {
@@ -66,14 +57,11 @@
       model = await blazeface.load();
       await setupCamera();
       video.play();
-
       canvas = document.getElementById("overlay");
       ctx = canvas.getContext("2d");
-
       resizeCanvas();
       window.addEventListener("resize", resizeCanvas);
       window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
-
       detectFaces();
     }
 
@@ -115,51 +103,49 @@
       ctx.restore();
 
       if (predictions.length > 0) {
-        let pred = predictions[0]; // one face
+        const pred = predictions[0];
         smoothedBox = smoothBox(smoothedBox, { topLeft: pred.topLeft, bottomRight: pred.bottomRight });
         smoothedLandmarks = smoothPoints(smoothedLandmarks, pred.landmarks);
 
         const [x1, y1] = smoothedBox.topLeft;
         const [x2, y2] = smoothedBox.bottomRight;
-        const width = x2 - x1;
-        const height = y2 - y1;
-        const mirroredX = canvas.width - x1 - width;
+        const width = x2 - x1, height = y2 - y1;
 
-        // Draw bounding box
+        // ✅ Draw mirrored box correctly
+        ctx.save();
+        ctx.scale(-1, 1);
+        ctx.translate(-canvas.width, 0);
         ctx.strokeStyle = "lime";
         ctx.lineWidth = 3;
-        ctx.strokeRect(mirroredX, y1, width, height);
+        ctx.strokeRect(x1, y1, width, height);
+        ctx.restore();
 
-        // Draw smoothed landmarks
         if (smoothedLandmarks) {
-          const [
-            modelRightEye,
-            modelLeftEye,
-            nose,
-            modelMouthRight,
-            modelMouthLeft,
-            modelRightEar
-          ] = smoothedLandmarks;
-
+          const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
           const points = [
-            { name: "Right Eye", x: canvas.width - modelRightEye[0], y: modelRightEye[1], color: "red" },
-            { name: "Left Eye",  x: canvas.width - modelLeftEye[0],  y: modelLeftEye[1],  color: "red" },
-            { name: "Nose",      x: canvas.width - nose[0],          y: nose[1],          color: "yellow" },
-            { name: "Mouth R",   x: canvas.width - modelMouthRight[0], y: modelMouthRight[1], color: "blue" },
-            { name: "Mouth L",   x: canvas.width - modelMouthLeft[0],  y: modelMouthLeft[1],  color: "blue" },
-            { name: "Right Ear", x: canvas.width - modelRightEar[0],   y: modelRightEar[1],   color: "orange" }
+            { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
+            { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
+            { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
+            { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
+            { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
+            { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
           ];
+
+          ctx.save();
+          ctx.scale(-1, 1);
+          ctx.translate(-canvas.width, 0);
 
           points.forEach(pt => {
             ctx.fillStyle = pt.color;
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
             ctx.fill();
-
             ctx.font = "14px Arial";
             ctx.fillStyle = "#fff";
             ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
           });
+
+          ctx.restore();
         }
       }
 
