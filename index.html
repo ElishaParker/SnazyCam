@@ -3,28 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Live Face Tracking – BlazeFace</title>
+  <title>FaceMesh Overlay – MediaPipe + TF.js</title>
 
-  <!-- TensorFlow.js core + BlazeFace -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+  <!-- MediaPipe FaceMesh -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest"></script>
 
   <style>
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
       overflow: hidden;
       background: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
+      height: 100%;
+      width: 100%;
     }
-    canvas, video {
+    #video, #overlay {
       position: absolute;
-      width: 100vw;
-      height: 100vh;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       object-fit: cover;
     }
   </style>
@@ -33,59 +31,72 @@
   <video id="video" autoplay muted playsinline></video>
   <canvas id="overlay"></canvas>
 
-  <script>
-    let model, video, canvas, ctx;
+  <script type="module">
+    import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 
-    async function setupCamera() {
-      video = document.getElementById("video");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
-        audio: false
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("overlay");
+    const ctx = canvas.getContext("2d");
+
+    let faceLandmarker, lastVideoTime = -1, results;
+
+    async function init() {
+      const filesetResolver = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      );
+      faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-assets/face_landmarker.task"
+        },
+        runningMode: "VIDEO",
+        outputFaceBlendshapes: false,
+        numFaces: 1
       });
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
       video.srcObject = stream;
-      return new Promise((resolve) => {
-        video.onloadedmetadata = () => resolve(video);
-      });
-    }
-
-    async function main() {
-      await tf.setBackend("webgl");
-      model = await blazeface.load();
-
-      await setupCamera();
-      video.play();
-
-      canvas = document.getElementById("overlay");
-      ctx = canvas.getContext("2d");
+      await video.play();
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      detectFaces();
+      requestAnimationFrame(detect);
     }
 
-    async function detectFaces() {
-      const predictions = await model.estimateFaces(video, false);
-
+    function drawLandmarks(landmarks) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = "rgba(0,255,0,0.7)";
+      ctx.fillStyle = "rgba(0,255,0,0.8)";
 
-      if (predictions.length > 0) {
-        predictions.forEach(pred => {
-          const [x1, y1] = pred.topLeft;
-          const [x2, y2] = pred.bottomRight;
-          const width = x2 - x1;
-          const height = y2 - y1;
-          ctx.strokeStyle = "lime";
-          ctx.lineWidth = 3;
-          ctx.strokeRect(x1, y1, width, height);
-        });
+      for (const lm of landmarks) {
+        const x = lm.x * canvas.width;
+        const y = lm.y * canvas.height;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.2, 0, 2 * Math.PI);
+        ctx.fill();
       }
-
-      requestAnimationFrame(detectFaces);
     }
 
-    main();
+    async function detect() {
+      if (!faceLandmarker) return;
+      const now = video.currentTime;
+      if (now === lastVideoTime) {
+        requestAnimationFrame(detect);
+        return;
+      }
+      lastVideoTime = now;
+
+      results = faceLandmarker.detectForVideo(video, now);
+      if (results && results.faceLandmarks.length > 0) {
+        drawLandmarks(results.faceLandmarks[0]);
+      }
+
+      requestAnimationFrame(detect);
+    }
+
+    init();
   </script>
 </body>
 </html>
