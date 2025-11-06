@@ -122,6 +122,9 @@
 
         if (smoothedLandmarks) {
           const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
+          // 🔧 proportional downward correction for Mouth L
+          const boxHeight = smoothedBox ? smoothedBox.bottomRight[1] - smoothedBox.topLeft[1] : 0;
+          mL[1] += boxHeight * 0.06; // ~6% of face height — tweak between 0.04–0.08
            
           const points = [
             { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
