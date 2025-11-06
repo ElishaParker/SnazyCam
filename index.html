@@ -1,9 +1,9 @@
-<!DOCTYPE html>  
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Live Face Tracking – BlazeFace (Responsive + Labeled Landmarks)</title>
+  <title>Live Face Tracking – BlazeFace (Smoothed Landmarks)</title>
 
   <!-- TensorFlow.js core + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -40,6 +40,11 @@
   <script>
     let model, video, canvas, ctx;
 
+    // Stores previous smoothed coordinates
+    let smoothedBox = null;
+    let smoothedLandmarks = null;
+    const SMOOTHING_ALPHA = 0.5; // balanced
+
     async function setupCamera() {
       video = document.getElementById("video");
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -51,7 +56,7 @@
         audio: false
       });
       video.srcObject = stream;
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         video.onloadedmetadata = () => resolve(video);
       });
     }
@@ -67,9 +72,7 @@
 
       resizeCanvas();
       window.addEventListener("resize", resizeCanvas);
-      window.addEventListener("orientationchange", () => {
-        setTimeout(resizeCanvas, 300);
-      });
+      window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
 
       detectFaces();
     }
@@ -77,6 +80,28 @@
     function resizeCanvas() {
       canvas.width = video.videoWidth || window.innerWidth;
       canvas.height = video.videoHeight || window.innerHeight;
+    }
+
+    function smoothPoints(prev, next) {
+      if (!prev) return next;
+      return prev.map((p, i) => [
+        p[0] + SMOOTHING_ALPHA * (next[i][0] - p[0]),
+        p[1] + SMOOTHING_ALPHA * (next[i][1] - p[1])
+      ]);
+    }
+
+    function smoothBox(prev, next) {
+      if (!prev) return next;
+      return {
+        topLeft: [
+          prev.topLeft[0] + SMOOTHING_ALPHA * (next.topLeft[0] - prev.topLeft[0]),
+          prev.topLeft[1] + SMOOTHING_ALPHA * (next.topLeft[1] - prev.topLeft[1])
+        ],
+        bottomRight: [
+          prev.bottomRight[0] + SMOOTHING_ALPHA * (next.bottomRight[0] - prev.bottomRight[0]),
+          prev.bottomRight[1] + SMOOTHING_ALPHA * (next.bottomRight[1] - prev.bottomRight[1])
+        ]
+      };
     }
 
     async function detectFaces() {
@@ -90,54 +115,52 @@
       ctx.restore();
 
       if (predictions.length > 0) {
-        predictions.forEach(pred => {
-          const [x1, y1] = pred.topLeft;
-          const [x2, y2] = pred.bottomRight;
-          const width = x2 - x1;
-          const height = y2 - y1;
+        let pred = predictions[0]; // one face
+        smoothedBox = smoothBox(smoothedBox, { topLeft: pred.topLeft, bottomRight: pred.bottomRight });
+        smoothedLandmarks = smoothPoints(smoothedLandmarks, pred.landmarks);
 
-          // ✅ Fixed mirrored bounding box alignment
-          const mirroredX = canvas.width - x1 - width;
+        const [x1, y1] = smoothedBox.topLeft;
+        const [x2, y2] = smoothedBox.bottomRight;
+        const width = x2 - x1;
+        const height = y2 - y1;
+        const mirroredX = canvas.width - x1 - width;
 
-          // Draw bounding box
-          ctx.strokeStyle = "lime";
-          ctx.lineWidth = 3;
-          ctx.strokeRect(mirroredX, y1, width, height);
+        // Draw bounding box
+        ctx.strokeStyle = "lime";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(mirroredX, y1, width, height);
 
-          // --- Draw labeled facial landmarks ---
-          if (pred.landmarks) {
-            const [
-              modelRightEye,
-              modelLeftEye,
-              nose,
-              modelMouthRight,
-              modelMouthLeft,
-              modelRightEar
-            ] = pred.landmarks;
+        // Draw smoothed landmarks
+        if (smoothedLandmarks) {
+          const [
+            modelRightEye,
+            modelLeftEye,
+            nose,
+            modelMouthRight,
+            modelMouthLeft,
+            modelRightEar
+          ] = smoothedLandmarks;
 
-            const points = [
-              { name: "Right Eye", x: canvas.width - modelRightEye[0], y: modelRightEye[1], color: "red" },
-              { name: "Left Eye",  x: canvas.width - modelLeftEye[0],  y: modelLeftEye[1],  color: "red" },
-              { name: "Nose",      x: canvas.width - nose[0],          y: nose[1],          color: "yellow" },
-              { name: "Mouth R",   x: canvas.width - modelMouthRight[0], y: modelMouthRight[1], color: "blue" },
-              { name: "Mouth L",   x: canvas.width - modelMouthLeft[0],  y: modelMouthLeft[1],  color: "blue" },
-              { name: "Right Ear", x: canvas.width - modelRightEar[0],   y: modelRightEar[1],   color: "orange" }
-            ];
+          const points = [
+            { name: "Right Eye", x: canvas.width - modelRightEye[0], y: modelRightEye[1], color: "red" },
+            { name: "Left Eye",  x: canvas.width - modelLeftEye[0],  y: modelLeftEye[1],  color: "red" },
+            { name: "Nose",      x: canvas.width - nose[0],          y: nose[1],          color: "yellow" },
+            { name: "Mouth R",   x: canvas.width - modelMouthRight[0], y: modelMouthRight[1], color: "blue" },
+            { name: "Mouth L",   x: canvas.width - modelMouthLeft[0],  y: modelMouthLeft[1],  color: "blue" },
+            { name: "Right Ear", x: canvas.width - modelRightEar[0],   y: modelRightEar[1],   color: "orange" }
+          ];
 
-            points.forEach(pt => {
-              // Draw dot
-              ctx.fillStyle = pt.color;
-              ctx.beginPath();
-              ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
-              ctx.fill();
+          points.forEach(pt => {
+            ctx.fillStyle = pt.color;
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
+            ctx.fill();
 
-              // Draw label
-              ctx.font = "14px Arial";
-              ctx.fillStyle = "#fff";
-              ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
-            });
-          }
-        });
+            ctx.font = "14px Arial";
+            ctx.fillStyle = "#fff";
+            ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
+          });
+        }
       }
 
       requestAnimationFrame(detectFaces);
