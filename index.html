@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Live Face Tracking – BlazeFace</title>
+  <title>Live Face Tracking – BlazeFace (Mirrored)</title>
 
   <!-- TensorFlow.js core + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -67,6 +67,10 @@
     async function detectFaces() {
       const predictions = await model.estimateFaces(video, false);
 
+      // Mirror horizontally
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.translate(-canvas.width, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -76,12 +80,17 @@
           const [x2, y2] = pred.bottomRight;
           const width = x2 - x1;
           const height = y2 - y1;
+
+          // Mirror the X coordinate of the rectangle
+          const mirroredX = canvas.width - x2;
+
           ctx.strokeStyle = "lime";
           ctx.lineWidth = 3;
-          ctx.strokeRect(x1, y1, width, height);
+          ctx.strokeRect(mirroredX, y1, width, height);
         });
       }
 
+      ctx.restore();
       requestAnimationFrame(detectFaces);
     }
 
