@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Live Face Tracking – BlazeFace (Responsive)</title>
+  <title>Live Face Tracking – BlazeFace (Responsive + Landmarks)</title>
 
   <!-- TensorFlow.js core + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -97,9 +97,32 @@
           const height = y2 - y1;
           const mirroredX1 = canvas.width - x2;
 
+          // Draw bounding box
           ctx.strokeStyle = "lime";
           ctx.lineWidth = 3;
           ctx.strokeRect(mirroredX1, y1, width, height);
+
+          // --- Draw facial landmarks ---
+          if (pred.landmarks) {
+            const [rightEye, leftEye, nose, mouthR, mouthL, rightEar] = pred.landmarks;
+
+            // Mirror X coordinates for each
+            const points = [
+              { name: "Right Eye", x: canvas.width - rightEye[0], y: rightEye[1], color: "red" },
+              { name: "Left Eye",  x: canvas.width - leftEye[0],  y: leftEye[1],  color: "red" },
+              { name: "Nose",      x: canvas.width - nose[0],     y: nose[1],     color: "yellow" },
+              { name: "Mouth R",   x: canvas.width - mouthR[0],   y: mouthR[1],   color: "blue" },
+              { name: "Mouth L",   x: canvas.width - mouthL[0],   y: mouthL[1],   color: "blue" },
+              { name: "Right Ear", x: canvas.width - rightEar[0], y: rightEar[1], color: "orange" }
+            ];
+
+            points.forEach(pt => {
+              ctx.fillStyle = pt.color;
+              ctx.beginPath();
+              ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
+              ctx.fill();
+            });
+          }
         });
       }
 
