@@ -39,8 +39,8 @@
     const SENSITIVITY_X = 1.0;
     const SENSITIVITY_Y = 1.0;
     const VIRTUAL_SCALE = 10; // Amplified cursor range
-    const CLAMP_THRESHOLD = 5; // px — deadzone for nose jitter
-    const CLAMP_EASE = 0.2; // gentle motion ramp when unfreezing
+    const CLAMP_THRESHOLD = 1; // px — deadzone for nose jitter
+    const CLAMP_EASE = 0.1; // gentle motion ramp when unfreezing
 
     let smoothedCursor = { x: 0, y: 0 };
 
