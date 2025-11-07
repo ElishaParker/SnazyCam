@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Fixed Sensitivity</title>
+  <title>BlazeFace Virtual Joystick – Full-Range Vertical Tracking</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -34,7 +34,8 @@
     let model, video, canvas, ctx;
     let smoothedBox = null, smoothedLandmarks = null;
     const SMOOTHING_ALPHA = 0.5;
-    const SENSITIVITY = 1.5; // ← fixed multiplier for nose-to-cursor movement
+    const SENSITIVITY_X = 1.5;  // horizontal multiplier
+    const SENSITIVITY_Y = 3.0;  // vertical multiplier (stronger range)
 
     async function setupCamera() {
       video = document.getElementById("video");
@@ -107,21 +108,23 @@
         const width = x2 - x1, height = y2 - y1;
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
-        // Bounding box center
+        // Bounding box horizontal center only
         const boxCenterX = (x1 + x2) / 2;
-        const boxCenterY = (y1 + y2) / 2;
 
-        // Nose offset relative to box center
+        // Horizontal offset: relative to box center (mirrored)
         const offsetX = nose[0] - boxCenterX;
-        const offsetY = nose[1] - boxCenterY;
+
+        // Vertical offset: relative to full video frame height
+        const frameMidY = canvas.height / 2;
+        const offsetY = nose[1] - frameMidY;
 
         // Screen center
         const screenCenterX = canvas.width / 2;
         const screenCenterY = canvas.height / 2;
 
-        // Virtual cursor position (mirrored horizontally)
-        const cursorX = screenCenterX - offsetX * SENSITIVITY;
-        const cursorY = screenCenterY + offsetY * SENSITIVITY;
+        // Cursor position (mirrored horizontally, free vertical range)
+        const cursorX = screenCenterX - offsetX * SENSITIVITY_X;
+        const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
 
         // --- Draw mirrored bounding box and landmarks ---
         ctx.save();
