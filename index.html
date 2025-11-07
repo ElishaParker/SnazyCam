@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Full-Range Vertical Tracking</title>
+  <title>BlazeFace Virtual Joystick – Full-Range Vertical Tracking (Smoothed Cursor)</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -36,6 +36,10 @@
     const SMOOTHING_ALPHA = 0.5;
     const SENSITIVITY_X = 1.5;  // horizontal multiplier
     const SENSITIVITY_Y = 2.0;  // vertical multiplier (stronger range)
+
+    // 🔹 Cursor smoothing
+    let smoothedCursor = { x: 0, y: 0 };
+    const CURSOR_ALPHA = 0.3; // smaller = smoother, 0.3-0.5 is ideal
 
     async function setupCamera() {
       video = document.getElementById("video");
@@ -126,6 +130,15 @@
         const cursorX = screenCenterX - offsetX * SENSITIVITY_X;
         const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
 
+        // 🔹 Smooth cursor movement
+        if (!smoothedCursor.x && !smoothedCursor.y) {
+          smoothedCursor.x = cursorX;
+          smoothedCursor.y = cursorY;
+        } else {
+          smoothedCursor.x += CURSOR_ALPHA * (cursorX - smoothedCursor.x);
+          smoothedCursor.y += CURSOR_ALPHA * (cursorY - smoothedCursor.y);
+        }
+
         // --- Draw mirrored bounding box and landmarks ---
         ctx.save();
         ctx.scale(-1, 1);
@@ -166,10 +179,10 @@
         ctx.lineTo(canvas.width, screenCenterY);
         ctx.stroke();
 
-        // Cursor (nose-driven)
+        // Cursor (nose-driven, smoothed)
         ctx.fillStyle = "#00FFFF";
         ctx.beginPath();
-        ctx.arc(cursorX, cursorY, 8, 0, 2 * Math.PI);
+        ctx.arc(smoothedCursor.x, smoothedCursor.y, 8, 0, 2 * Math.PI);
         ctx.fill();
 
         // Display offset values
