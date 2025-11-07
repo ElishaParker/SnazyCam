@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor</title>
+  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor (with Nose Clamp)</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -33,11 +33,13 @@
   <script>
     let model, video, canvas, ctx;
     let smoothedLandmarks = null;
+
     const SMOOTHING_ALPHA = 0.1;
     const CURSOR_ALPHA = 0.1;
     const SENSITIVITY_X = 1.0;
     const SENSITIVITY_Y = 1.0;
-    const VIRTUAL_SCALE = 8; // 🔹 Amplify cursor range (2.5× wider and taller virtual grid)
+    const VIRTUAL_SCALE = 8; // Amplified cursor range
+    const CLAMP_THRESHOLD = 5; // px — deadzone for nose jitter
 
     let smoothedCursor = { x: 0, y: 0 };
 
@@ -73,12 +75,24 @@
       return a + (b - a) * t;
     }
 
+    // --- Landmark smoothing ---
     function smoothPoints(prev, next) {
       if (!prev) return next;
       return prev.map((p, i) => [
         lerp(p[0], next[i][0], SMOOTHING_ALPHA),
         lerp(p[1], next[i][1], SMOOTHING_ALPHA)
       ]);
+    }
+
+    // --- Deadzone clamp: ignore micro movements under 5px ---
+    function clampSmallMovement(prev, next, threshold = CLAMP_THRESHOLD) {
+      if (!prev) return next;
+      return next.map((p, i) => {
+        const dx = p[0] - prev[i][0];
+        const dy = p[1] - prev[i][1];
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        return dist < threshold ? prev[i] : p;
+      });
     }
 
     async function detectFaces() {
@@ -94,7 +108,13 @@
 
       if (predictions.length > 0) {
         const pred = predictions[0];
-        smoothedLandmarks = smoothPoints(smoothedLandmarks, pred.landmarks);
+
+        // Step 1: Smooth normally
+        let tempSmooth = smoothPoints(smoothedLandmarks, pred.landmarks);
+
+        // Step 2: Clamp tiny wobble under threshold
+        smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD);
+
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
         // Mirror correction
@@ -115,7 +135,7 @@
         const cursorX = screenCenterX + offsetX * SENSITIVITY_X;
         const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
 
-        // Clamp to viewport edges
+        // Clamp cursor to viewport edges
         const clampedX = Math.max(0, Math.min(canvas.width, cursorX));
         const clampedY = Math.max(0, Math.min(canvas.height, cursorY));
 
@@ -123,7 +143,7 @@
         smoothedCursor.x = lerp(smoothedCursor.x, clampedX, CURSOR_ALPHA);
         smoothedCursor.y = lerp(smoothedCursor.y, clampedY, CURSOR_ALPHA);
 
-        // --- Draw mirrored facial landmarks ---
+        // --- Draw mirrored face landmarks ---
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
@@ -149,11 +169,11 @@
 
         ctx.restore();
 
-        // --- Virtual overlay grid (for visual reference) ---
+        // --- Virtual overlay grid ---
         ctx.strokeStyle = "#00FF00";
         ctx.setLineDash([8, 8]);
         ctx.lineWidth = 1;
-        ctx.strokeRect(0, 0, canvas.width, canvas.height); // Outer frame
+        ctx.strokeRect(0, 0, canvas.width, canvas.height);
 
         ctx.setLineDash([]);
         ctx.lineWidth = 1.5;
