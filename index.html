@@ -148,7 +148,8 @@
 
         // Clamp cursor to viewport edges
         const clampedX = Math.max(0, Math.min(canvas.width, cursorX));
-        const clampedY = Math.max(0, Math.min(canvas.height, cursorY));
+        const clampedY = Math.max(8, Math.min(canvas.height - 8, cursorY));
+
 
         // Smooth cursor motion
         smoothedCursor.x = lerp(smoothedCursor.x, clampedX, CURSOR_ALPHA);
