@@ -33,11 +33,11 @@
   <script>
     let model, video, canvas, ctx;
     let smoothedLandmarks = null;
-    const SMOOTHING_ALPHA = 0.3;
+    const SMOOTHING_ALPHA = 0.15;
     const CURSOR_ALPHA = 0.2;
     const SENSITIVITY_X = 1.0;
     const SENSITIVITY_Y = 1.0;
-    const VIRTUAL_SCALE = 5; // 🔹 Amplify cursor range (2.5× wider and taller virtual grid)
+    const VIRTUAL_SCALE = 6.5; // 🔹 Amplify cursor range (2.5× wider and taller virtual grid)
 
     let smoothedCursor = { x: 0, y: 0 };
 
