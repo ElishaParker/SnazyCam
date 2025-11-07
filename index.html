@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor (Fine Tuned XY)</title>
+  <title>BlazeFace Virtual Joystick – Ultra Smooth Nose Tracking</title>
 
-  <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -20,7 +19,7 @@
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: cover;
-      transform: scaleX(-1); /* mirror feed visually */
+      transform: scaleX(-1);
     }
     canvas {
       position: absolute; inset: 0;
@@ -36,18 +35,19 @@
   <script>
     let model, video, canvas, ctx;
     let smoothedLandmarks = null;
+    let smoothedNose = null;
 
-    const SMOOTHING_ALPHA = 0.1;
+    // --- Tuning constants ---
+    const SMOOTHING_ALPHA = 0.1;      // regular landmark smoothing
+    const NOSE_SMOOTH_ALPHA = 0.05;    // 🔹 slower nose-only smoothing
     const CURSOR_ALPHA = 0.05;
-    const SENSITIVITY_X = 0.5;
-    const SENSITIVITY_Y = 0.5;
+    const SENSITIVITY_X = 1.0;
+    const SENSITIVITY_Y = 1.0;
     const VIRTUAL_SCALE = 15;
-    const CLAMP_THRESHOLD = 0.3;
-    const CLAMP_EASE = 0.01;
-
-    // 🔹 Fine-tune alignment controls
-    const VERTICAL_FINE_TUNE = 15;    // +down / -up
-    const HORIZONTAL_FINE_TUNE = 25; // +right / -left
+    const CLAMP_THRESHOLD = 1.0;
+    const CLAMP_EASE = 0.05;
+    const VERTICAL_FINE_TUNE = 15;
+    const HORIZONTAL_FINE_TUNE = 25;
 
     let smoothedCursor = { x: 0, y: 0 };
     let viewW = 0, viewH = 0, dpr = 1;
@@ -87,11 +87,11 @@
 
     function lerp(a, b, t) { return a + (b - a) * t; }
 
-    function smoothPoints(prev, next) {
+    function smoothPoints(prev, next, alpha = SMOOTHING_ALPHA) {
       if (!prev) return next;
-      return next.map((p, i) => [
-        lerp(p[0], next[i][0], SMOOTHING_ALPHA),
-        lerp(p[1], next[i][1], SMOOTHING_ALPHA)
+      return prev.map((p, i) => [
+        lerp(p[0], next[i][0], alpha),
+        lerp(p[1], next[i][1], alpha)
       ]);
     }
 
@@ -113,11 +113,18 @@
 
       if (predictions.length > 0) {
         const pred = predictions[0];
+
+        // Landmark smoothing & clamping
         let tempSmooth = smoothPoints(smoothedLandmarks, pred.landmarks);
         smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD, CLAMP_EASE);
-        const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
+        const [rEye, lEye, noseRaw, mR, mL, rEar] = smoothedLandmarks;
 
-        // --- ✅ Handle object-fit: cover cropping ---
+        // --- 🔹 Independent nose smoothing ---
+        if (!smoothedNose) smoothedNose = [...noseRaw];
+        smoothedNose[0] = lerp(smoothedNose[0], noseRaw[0], NOSE_SMOOTH_ALPHA);
+        smoothedNose[1] = lerp(smoothedNose[1], noseRaw[1], NOSE_SMOOTH_ALPHA);
+
+        // --- Handle object-fit: cover cropping ---
         const videoW = video.videoWidth || viewW;
         const videoH = video.videoHeight || viewH;
         const videoAspect = videoW / videoH;
@@ -136,20 +143,18 @@
           offsetY = (drawHeight - viewH) / 2;
         }
 
-        // 🔹 Apply fine-tune offsets
         offsetY += VERTICAL_FINE_TUNE;
         offsetX += HORIZONTAL_FINE_TUNE;
 
         const scaleX = drawWidth / videoW;
         const scaleY = drawHeight / videoH;
 
-        // --- Scale + mirror nose coordinates ---
-        const scaledNoseX = nose[0] * scaleX - offsetX;
-        const scaledNoseY = nose[1] * scaleY - offsetY;
+        // --- Use smoothed nose for cursor ---
+        const scaledNoseX = smoothedNose[0] * scaleX - offsetX;
+        const scaledNoseY = smoothedNose[1] * scaleY - offsetY;
         const mirroredNoseX = viewW - scaledNoseX;
         const mirroredNoseY = scaledNoseY;
 
-        // Normalize and amplify cursor mapping
         const normX = mirroredNoseX / viewW;
         const normY = mirroredNoseY / viewH;
 
@@ -168,14 +173,14 @@
         smoothedCursor.x = lerp(smoothedCursor.x, clampedX, CURSOR_ALPHA);
         smoothedCursor.y = lerp(smoothedCursor.y, clampedY, CURSOR_ALPHA);
 
-        // --- Draw all landmarks scaled + mirrored ---
+        // --- Draw all landmarks ---
         const mirrorX = x => viewW - (x * scaleX - offsetX);
         const scaleYf = y => y * scaleY - offsetY;
 
         const points = [
           { name: "Right Eye", x: mirrorX(rEye[0]), y: scaleYf(rEye[1]), color: "red" },
           { name: "Left Eye",  x: mirrorX(lEye[0]), y: scaleYf(lEye[1]), color: "red" },
-          { name: "Nose",      x: mirrorX(nose[0]), y: scaleYf(nose[1]), color: "yellow" },
+          { name: "Nose",      x: mirrorX(smoothedNose[0]), y: scaleYf(smoothedNose[1]), color: "yellow" },
           { name: "Mouth R",   x: mirrorX(mR[0]),   y: scaleYf(mR[1]),   color: "blue" },
           { name: "Mouth L",   x: mirrorX(mL[0]),   y: scaleYf(mL[1]),   color: "blue" },
           { name: "Right Ear", x: mirrorX(rEar[0]), y: scaleYf(rEar[1]), color: "orange" }
@@ -192,16 +197,17 @@
         });
 
         // --- Grid + cursor ---
+        const screenCenterX2 = viewW / 2;
+        const screenCenterY2 = viewH / 2;
         ctx.strokeStyle = "#00FF00";
         ctx.setLineDash([8, 8]);
-        ctx.lineWidth = 1;
         ctx.strokeRect(0, 0, viewW, viewH);
         ctx.setLineDash([]);
         ctx.beginPath();
-        ctx.moveTo(screenCenterX, 0);
-        ctx.lineTo(screenCenterX, viewH);
-        ctx.moveTo(0, screenCenterY);
-        ctx.lineTo(viewW, screenCenterY);
+        ctx.moveTo(screenCenterX2, 0);
+        ctx.lineTo(screenCenterX2, viewH);
+        ctx.moveTo(0, screenCenterY2);
+        ctx.lineTo(viewW, screenCenterY2);
         ctx.stroke();
 
         const drawX = Math.max(PAD, Math.min(viewW - PAD, smoothedCursor.x));
