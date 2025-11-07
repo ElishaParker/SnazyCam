@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Live Face Tracking – BlazeFace (Corrected Labels)</title>
+  <title>BlazeFace Virtual Joystick – Nose Cursor</title>
 
+  <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -12,29 +13,46 @@
 
   <style>
     html, body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
+      margin: 0; padding: 0; overflow: hidden;
       background: #000;
-      height: 100%;
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
+      height: 100%; width: 100%;
+      display: flex; justify-content: center; align-items: center;
     }
     video, canvas {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
       object-fit: cover;
+    }
+    #controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.6);
+      color: #0ff;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-family: monospace;
+      font-size: 14px;
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+    input[type="range"] {
+      width: 120px;
     }
   </style>
 </head>
 <body>
   <video id="video" autoplay muted playsinline></video>
   <canvas id="overlay"></canvas>
+
+  <!-- Sliders for X/Y sensitivity -->
+  <div id="controls">
+    <label>X Sensitivity: <input id="xSens" type="range" min="0.5" max="5" step="0.1" value="1.5" /></label>
+    <label>Y Sensitivity: <input id="ySens" type="range" min="0.5" max="5" step="0.1" value="1.5" /></label>
+  </div>
 
   <script>
     let model, video, canvas, ctx;
@@ -110,91 +128,79 @@
         const [x2, y2] = smoothedBox.bottomRight;
         const width = x2 - x1, height = y2 - y1;
 
-        // Draw mirrored bounding box
+        const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
+
+        // Bounding box center
+        const boxCenterX = (x1 + x2) / 2;
+        const boxCenterY = (y1 + y2) / 2;
+
+        // Nose offset within box
+        const offsetX = nose[0] - boxCenterX;
+        const offsetY = nose[1] - boxCenterY;
+
+        // Center of browser window
+        const screenCenterX = canvas.width / 2;
+        const screenCenterY = canvas.height / 2;
+
+        // Sensitivity multipliers
+        const xSens = parseFloat(document.getElementById("xSens").value);
+        const ySens = parseFloat(document.getElementById("ySens").value);
+
+        // Calculate virtual cursor position
+        const cursorX = screenCenterX + offsetX * xSens;
+        const cursorY = screenCenterY + offsetY * ySens;
+
+        // --- Draw bounding box + landmarks (mirrored) ---
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
+
         ctx.strokeStyle = "lime";
         ctx.lineWidth = 3;
         ctx.strokeRect(x1, y1, width, height);
+
+        const points = [
+          { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
+          { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
+          { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
+          { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
+          { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
+          { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
+        ];
+
+        points.forEach(pt => {
+          ctx.fillStyle = pt.color;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.font = "14px Arial";
+          ctx.fillStyle = "#fff";
+          ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
+        });
+
         ctx.restore();
 
-        if (smoothedLandmarks) {
-          const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
+        // --- Virtual Joystick Overlay ---
+        // Draw crosshair at screen center
+        ctx.strokeStyle = "#555";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(screenCenterX, 0);
+        ctx.lineTo(screenCenterX, canvas.height);
+        ctx.moveTo(0, screenCenterY);
+        ctx.lineTo(canvas.width, screenCenterY);
+        ctx.stroke();
 
-          const points = [
-            { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
-            { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
-            { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
-            { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
-            { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
-            { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
-          ];
+        // Draw virtual cursor
+        ctx.fillStyle = "#00FFFF";
+        ctx.beginPath();
+        ctx.arc(cursorX, cursorY, 8, 0, 2 * Math.PI);
+        ctx.fill();
 
-          // Draw mirrored points (but fix text direction)
-          ctx.save();
-          ctx.scale(-1, 1);
-          ctx.translate(-canvas.width, 0);
-
-          points.forEach(pt => {
-            // Draw dots normally (mirrored space)
-            ctx.fillStyle = pt.color;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
-
-            // Flip text drawing back to normal
-            ctx.save();
-            ctx.scale(-1, 1);
-            ctx.translate(-canvas.width, 0);
-            const mirroredX = canvas.width - pt.x;
-            ctx.font = "14px Arial";
-            ctx.fillStyle = "#fff";
-            ctx.fillText(pt.name, mirroredX + 6, pt.y - 6);
-            ctx.restore();
-          });
-
-          // --- Crosshair centered on nose ---
-          const noseX = nose[0];
-          const noseY = nose[1];
-
-          ctx.shadowBlur = 0;
-          ctx.lineWidth = 2;
-
-          // Horizontal (red)
-          ctx.strokeStyle = "red";
-          ctx.beginPath();
-          ctx.moveTo(0, noseY);
-          ctx.lineTo(canvas.width, noseY);
-          ctx.stroke();
-
-          // Vertical (lime)
-          ctx.strokeStyle = "lime";
-          ctx.beginPath();
-          ctx.moveTo(noseX, 0);
-          ctx.lineTo(noseX, canvas.height);
-          ctx.stroke();
-
-          // White center dot
-          ctx.fillStyle = "white";
-          ctx.beginPath();
-          ctx.arc(noseX, noseY, 3, 0, 2 * Math.PI);
-          ctx.fill();
-
-          // Coordinate display (mirrored correctly)
-          ctx.save();
-          ctx.scale(-1, 1);
-          ctx.translate(-canvas.width, 0);
-          ctx.font = "16px monospace";
-          ctx.fillStyle = "#00FFFF";
-          const displayX = Math.round(noseX);
-          const displayY = Math.round(noseY);
-          const mirroredX = canvas.width - noseX;
-          ctx.fillText(`X: ${displayX}, Y: ${displayY}`, mirroredX + 10, noseY - 10);
-          ctx.restore();
-
-          ctx.restore();
-        }
+        // Display offset values
+        ctx.font = "16px monospace";
+        ctx.fillStyle = "#00FFFF";
+        ctx.fillText(`ΔX: ${Math.round(offsetX)}, ΔY: ${Math.round(offsetY)}`, 20, 30);
       }
 
       requestAnimationFrame(detectFaces);
