@@ -35,11 +35,11 @@
     let smoothedLandmarks = null;
 
     const SMOOTHING_ALPHA = 0.1;
-    const CURSOR_ALPHA = 0.1;
+    const CURSOR_ALPHA = 0.05;
     const SENSITIVITY_X = 1.0;
     const SENSITIVITY_Y = 1.0;
-    const VIRTUAL_SCALE = 9.5; // Amplified cursor range
-    const CLAMP_THRESHOLD = 2.5; // px — deadzone for nose jitter
+    const VIRTUAL_SCALE = 10; // Amplified cursor range
+    const CLAMP_THRESHOLD = 1; // px — deadzone for nose jitter
 
     let smoothedCursor = { x: 0, y: 0 };
 
