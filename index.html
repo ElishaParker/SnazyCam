@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Locked Box Size + Smooth Cursor</title>
+  <title>BlazeFace Virtual Joystick – Locked Size + De-Jittered Nose</title>
 
-  <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -33,17 +32,17 @@
   <script>
     let model, video, canvas, ctx;
     let smoothedBox = null, smoothedLandmarks = null;
-    const SMOOTHING_ALPHA = 0.5;
+    const SMOOTHING_ALPHA = 0.4;
     const SENSITIVITY_X = 1.5;
     const SENSITIVITY_Y = 2.0;
+    const BOX_SMOOTH = 0.2;
+    const CURSOR_ALPHA = 0.25;
 
-    // Cursor smoothing
+    // Cursor & locked box
     let smoothedCursor = { x: 0, y: 0 };
-    const CURSOR_ALPHA = 0.3;
-
-    // Locked box size
-    let lockedBoxWidth = null;
-    let lockedBoxHeight = null;
+    let lockedBoxWidth = null, lockedBoxHeight = null;
+    let lockedBoxCenter = null;
+    let noseRatio = { x: 0.5, y: 0.5 }; // normalized inside box
 
     async function setupCamera() {
       video = document.getElementById("video");
@@ -73,26 +72,30 @@
       canvas.height = video.videoHeight || window.innerHeight;
     }
 
-    function smoothPoints(prev, next) {
-      if (!prev) return next;
-      return prev.map((p, i) => [
-        p[0] + SMOOTHING_ALPHA * (next[i][0] - p[0]),
-        p[1] + SMOOTHING_ALPHA * (next[i][1] - p[1])
-      ]);
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
     }
 
     function smoothBox(prev, next) {
       if (!prev) return next;
       return {
         topLeft: [
-          prev.topLeft[0] + SMOOTHING_ALPHA * (next.topLeft[0] - prev.topLeft[0]),
-          prev.topLeft[1] + SMOOTHING_ALPHA * (next.topLeft[1] - prev.topLeft[1])
+          lerp(prev.topLeft[0], next.topLeft[0], BOX_SMOOTH),
+          lerp(prev.topLeft[1], next.topLeft[1], BOX_SMOOTH)
         ],
         bottomRight: [
-          prev.bottomRight[0] + SMOOTHING_ALPHA * (next.bottomRight[0] - prev.bottomRight[0]),
-          prev.bottomRight[1] + SMOOTHING_ALPHA * (next.bottomRight[1] - prev.bottomRight[1])
+          lerp(prev.bottomRight[0], next.bottomRight[0], BOX_SMOOTH),
+          lerp(prev.bottomRight[1], next.bottomRight[1], BOX_SMOOTH)
         ]
       };
+    }
+
+    function smoothPoints(prev, next) {
+      if (!prev) return next;
+      return prev.map((p, i) => [
+        lerp(p[0], next[i][0], SMOOTHING_ALPHA),
+        lerp(p[1], next[i][1], SMOOTHING_ALPHA)
+      ]);
     }
 
     async function detectFaces() {
@@ -116,59 +119,69 @@
         let width = x2 - x1;
         let height = y2 - y1;
 
-        // Lock box size after initial detection
+        // Expand box vertically
+        const expand = 0.35;
+        y1 -= height * expand;
+        y2 += height * expand;
+        height = y2 - y1;
+
+        // Lock size after initialization
         if (!lockedBoxWidth || !lockedBoxHeight) {
           lockedBoxWidth = width;
-          lockedBoxHeight = height * 1.7; // make taller for portrait
+          lockedBoxHeight = height;
+          lockedBoxCenter = {
+            x: (x1 + x2) / 2,
+            y: (y1 + y2) / 2
+          };
         } else {
-          // Recalculate position but keep locked size
-          const boxCenterX = (x1 + x2) / 2;
-          const boxCenterY = (y1 + y2) / 2;
-          x1 = boxCenterX - lockedBoxWidth / 2;
-          x2 = boxCenterX + lockedBoxWidth / 2;
-          y1 = boxCenterY - lockedBoxHeight / 2;
-          y2 = boxCenterY + lockedBoxHeight / 2;
+          lockedBoxCenter.x = lerp(lockedBoxCenter.x, (x1 + x2) / 2, BOX_SMOOTH);
+          lockedBoxCenter.y = lerp(lockedBoxCenter.y, (y1 + y2) / 2, BOX_SMOOTH);
         }
 
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
-        const boxCenterX = (x1 + x2) / 2;
-        const boxCenterY = (y1 + y2) / 2;
+        // Step 1: Calculate nose’s normalized position inside the *current* detected box
+        const noseRatioX = (nose[0] - x1) / width;
+        const noseRatioY = (nose[1] - y1) / height;
+        noseRatio.x = lerp(noseRatio.x, noseRatioX, 0.2);
+        noseRatio.y = lerp(noseRatio.y, noseRatioY, 0.2);
 
-        // Offsets relative to locked bounding box center
-        const offsetX = nose[0] - boxCenterX;
-        const offsetY = nose[1] - boxCenterY;
+        // Step 2: Reproject into locked box
+        const noseLockedX = lockedBoxCenter.x - lockedBoxWidth / 2 + noseRatio.x * lockedBoxWidth;
+        const noseLockedY = lockedBoxCenter.y - lockedBoxHeight / 2 + noseRatio.y * lockedBoxHeight;
 
-        // Screen center
+        // Offsets relative to locked box center
+        const offsetX = noseLockedX - lockedBoxCenter.x;
+        const offsetY = noseLockedY - lockedBoxCenter.y;
+
+        // Cursor coordinates (mirrored horizontally)
         const screenCenterX = canvas.width / 2;
         const screenCenterY = canvas.height / 2;
-
-        // Cursor position (mirrored horizontally)
         const cursorX = screenCenterX - offsetX * SENSITIVITY_X;
         const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
 
-        // Smooth cursor movement
-        if (!smoothedCursor.x && !smoothedCursor.y) {
-          smoothedCursor.x = cursorX;
-          smoothedCursor.y = cursorY;
-        } else {
-          smoothedCursor.x += CURSOR_ALPHA * (cursorX - smoothedCursor.x);
-          smoothedCursor.y += CURSOR_ALPHA * (cursorY - smoothedCursor.y);
-        }
+        // Smooth cursor motion
+        smoothedCursor.x = lerp(smoothedCursor.x, cursorX, CURSOR_ALPHA);
+        smoothedCursor.y = lerp(smoothedCursor.y, cursorY, CURSOR_ALPHA);
 
-        // --- Draw mirrored bounding box and landmarks ---
+        // --- Draw mirrored bounding box + landmarks ---
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
 
         ctx.strokeStyle = "lime";
         ctx.lineWidth = 3;
-        ctx.strokeRect(x1, y1, lockedBoxWidth, lockedBoxHeight);
+        ctx.strokeRect(
+          lockedBoxCenter.x - lockedBoxWidth / 2,
+          lockedBoxCenter.y - lockedBoxHeight / 2,
+          lockedBoxWidth,
+          lockedBoxHeight
+        );
 
         const points = [
           { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
           { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
-          { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
+          { name: "Nose",      x: noseLockedX, y: noseLockedY, color: "yellow" },
           { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
           { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
           { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
@@ -186,26 +199,22 @@
 
         ctx.restore();
 
-        // --- Virtual Joystick Overlay ---
-        const screenMidX = canvas.width / 2;
-        const screenMidY = canvas.height / 2;
-
+        // --- Virtual joystick overlay ---
         ctx.strokeStyle = "#444";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(screenMidX, 0);
-        ctx.lineTo(screenMidX, canvas.height);
-        ctx.moveTo(0, screenMidY);
-        ctx.lineTo(canvas.width, screenMidY);
+        ctx.moveTo(screenCenterX, 0);
+        ctx.lineTo(screenCenterX, canvas.height);
+        ctx.moveTo(0, screenCenterY);
+        ctx.lineTo(canvas.width, screenCenterY);
         ctx.stroke();
 
-        // Cursor
+        // Cursor (nose-driven)
         ctx.fillStyle = "#00FFFF";
         ctx.beginPath();
         ctx.arc(smoothedCursor.x, smoothedCursor.y, 8, 0, 2 * Math.PI);
         ctx.fill();
 
-        // Debug text
         ctx.font = "16px monospace";
         ctx.fillStyle = "#00FFFF";
         ctx.fillText(`ΔX: ${Math.round(offsetX)}, ΔY: ${Math.round(offsetY)}`, 20, 30);
