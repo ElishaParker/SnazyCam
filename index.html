@@ -40,7 +40,7 @@
     const SENSITIVITY_Y = 1.2;
     const VIRTUAL_SCALE = 10; // Amplified cursor range
     const CLAMP_THRESHOLD = 2; // px — deadzone for nose jitter
-    const CLAMP_EASE = 0.01; // gentle motion ramp when unfreezing
+    const CLAMP_EASE = 0.1; // gentle motion ramp when unfreezing
 
     let smoothedCursor = { x: 0, y: 0 };
 
@@ -140,7 +140,7 @@
         const screenCenterX = canvas.width / 2;
         const screenCenterY = canvas.height / 2;
         const offsetX = (normX - 0.5) * canvas.width * VIRTUAL_SCALE;
-        const offsetY = (normY - 0.5) * canvas.height * VIRTUAL_SCALE;
+        const offsetY = (normY - 0.01) * canvas.height * VIRTUAL_SCALE;
 
         // Cursor position centered + amplified
         const cursorX = screenCenterX + offsetX * SENSITIVITY_X;
@@ -148,7 +148,7 @@
 
         // Clamp cursor to viewport edges
         const clampedX = Math.max(0, Math.min(canvas.width, cursorX));
-        const clampedY = Math.max(8, Math.min(canvas.height - 8, cursorY));
+        const clampedY = Math.max(0, Math.min(canvas.height, cursorY));
 
 
         // Smooth cursor motion
