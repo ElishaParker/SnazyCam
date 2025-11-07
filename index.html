@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Full Viewport Range Cursor</title>
+  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -35,10 +35,10 @@
     let smoothedLandmarks = null;
     const SMOOTHING_ALPHA = 0.3;
     const CURSOR_ALPHA = 0.2;
-    const SENSITIVITY_X = 1.; // Adjust sensitivity to preference
-    const SENSITIVITY_Y = 1.;
+    const SENSITIVITY_X = 1.0;
+    const SENSITIVITY_Y = 1.0;
+    const VIRTUAL_SCALE = 2.5; // 🔹 Amplify cursor range (2.5× wider and taller virtual grid)
 
-    // Smooth cursor position
     let smoothedCursor = { x: 0, y: 0 };
 
     async function setupCamera() {
@@ -84,7 +84,7 @@
     async function detectFaces() {
       const predictions = await model.estimateFaces(video, false);
 
-      // Draw mirrored camera feed
+      // Draw mirrored video feed
       ctx.save();
       ctx.scale(-1, 1);
       ctx.translate(-canvas.width, 0);
@@ -101,19 +101,29 @@
         const mirroredNoseX = canvas.width - nose[0];
         const mirroredNoseY = nose[1];
 
-        // Normalize nose position within full canvas range
-        const normX = mirroredNoseX / canvas.width;  // 0 = left, 1 = right
-        const normY = mirroredNoseY / canvas.height; // 0 = top, 1 = bottom
+        // Normalize nose position within full canvas
+        const normX = mirroredNoseX / canvas.width;
+        const normY = mirroredNoseY / canvas.height;
 
-        // Map to full viewport cursor position
-        const cursorX = normX * canvas.width * SENSITIVITY_X;
-        const cursorY = normY * canvas.height * SENSITIVITY_Y;
+        // Map to amplified virtual overlay range
+        const screenCenterX = canvas.width / 2;
+        const screenCenterY = canvas.height / 2;
+        const offsetX = (normX - 0.5) * canvas.width * VIRTUAL_SCALE;
+        const offsetY = (normY - 0.5) * canvas.height * VIRTUAL_SCALE;
+
+        // Cursor position centered + amplified
+        const cursorX = screenCenterX + offsetX * SENSITIVITY_X;
+        const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
+
+        // Clamp to viewport edges
+        const clampedX = Math.max(0, Math.min(canvas.width, cursorX));
+        const clampedY = Math.max(0, Math.min(canvas.height, cursorY));
 
         // Smooth cursor motion
-        smoothedCursor.x = lerp(smoothedCursor.x, cursorX, CURSOR_ALPHA);
-        smoothedCursor.y = lerp(smoothedCursor.y, cursorY, CURSOR_ALPHA);
+        smoothedCursor.x = lerp(smoothedCursor.x, clampedX, CURSOR_ALPHA);
+        smoothedCursor.y = lerp(smoothedCursor.y, clampedY, CURSOR_ALPHA);
 
-        // --- Draw mirrored face landmarks ---
+        // --- Draw mirrored facial landmarks ---
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
@@ -139,11 +149,15 @@
 
         ctx.restore();
 
-        // --- Virtual Joystick Overlay ---
-        const screenCenterX = canvas.width / 2;
-        const screenCenterY = canvas.height / 2;
-        ctx.strokeStyle = "#444";
+        // --- Virtual overlay grid (for visual reference) ---
+        ctx.strokeStyle = "#00FF00";
+        ctx.setLineDash([8, 8]);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0, 0, canvas.width, canvas.height); // Outer frame
+
+        ctx.setLineDash([]);
         ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "#00FF00";
         ctx.beginPath();
         ctx.moveTo(screenCenterX, 0);
         ctx.lineTo(screenCenterX, canvas.height);
@@ -151,7 +165,7 @@
         ctx.lineTo(canvas.width, screenCenterY);
         ctx.stroke();
 
-        // Cursor (nose-driven, full range)
+        // --- Cursor (amplified, smoothed) ---
         ctx.fillStyle = "#00FFFF";
         ctx.beginPath();
         ctx.arc(smoothedCursor.x, smoothedCursor.y, 8, 0, 2 * Math.PI);
