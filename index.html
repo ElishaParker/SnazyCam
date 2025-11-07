@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor (Perfect Alignment)</title>
+  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor (Fine Tuned XY)</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -45,6 +45,10 @@
     const CLAMP_THRESHOLD = 1.0;
     const CLAMP_EASE = 0.05;
 
+    // 🔹 Fine-tune alignment controls
+    const VERTICAL_FINE_TUNE = 20;    // +down / -up
+    const HORIZONTAL_FINE_TUNE = -15; // +right / -left
+
     let smoothedCursor = { x: 0, y: 0 };
     let viewW = 0, viewH = 0, dpr = 1;
 
@@ -85,7 +89,7 @@
 
     function smoothPoints(prev, next) {
       if (!prev) return next;
-      return prev.map((p, i) => [
+      return next.map((p, i) => [
         lerp(p[0], next[i][0], SMOOTHING_ALPHA),
         lerp(p[1], next[i][1], SMOOTHING_ALPHA)
       ]);
@@ -113,31 +117,49 @@
         smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD, CLAMP_EASE);
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
-        // --- ✅ SCALE LANDMARKS INTO CANVAS COORDINATE SPACE ---
+        // --- ✅ Handle object-fit: cover cropping ---
         const videoW = video.videoWidth || viewW;
         const videoH = video.videoHeight || viewH;
-        const scaleX = viewW / videoW;
-        const scaleY = viewH / videoH;
+        const videoAspect = videoW / videoH;
+        const viewAspect  = viewW / viewH;
 
-        const scaled = {
-          noseX: nose[0] * scaleX,
-          noseY: nose[1] * scaleY
-        };
-        const mirroredNoseX = viewW - scaled.noseX;
-        const mirroredNoseY = scaled.noseY;
+        let drawWidth, drawHeight, offsetX, offsetY;
+        if (videoAspect > viewAspect) {
+          drawHeight = viewH;
+          drawWidth  = viewH * videoAspect;
+          offsetX = (drawWidth - viewW) / 2;
+          offsetY = 0;
+        } else {
+          drawWidth  = viewW;
+          drawHeight = viewW / videoAspect;
+          offsetX = 0;
+          offsetY = (drawHeight - viewH) / 2;
+        }
 
-        // Normalize for cursor mapping
+        // 🔹 Apply fine-tune offsets
+        offsetY += VERTICAL_FINE_TUNE;
+        offsetX += HORIZONTAL_FINE_TUNE;
+
+        const scaleX = drawWidth / videoW;
+        const scaleY = drawHeight / videoH;
+
+        // --- Scale + mirror nose coordinates ---
+        const scaledNoseX = nose[0] * scaleX - offsetX;
+        const scaledNoseY = nose[1] * scaleY - offsetY;
+        const mirroredNoseX = viewW - scaledNoseX;
+        const mirroredNoseY = scaledNoseY;
+
+        // Normalize and amplify cursor mapping
         const normX = mirroredNoseX / viewW;
         const normY = mirroredNoseY / viewH;
 
-        // Amplify offsets around center
         const screenCenterX = viewW / 2;
         const screenCenterY = viewH / 2;
-        const offsetX = (normX - 0.5) * viewW * VIRTUAL_SCALE;
-        const offsetY = (normY - 0.5) * viewH * VIRTUAL_SCALE;
+        const offsetXcursor = (normX - 0.5) * viewW * VIRTUAL_SCALE;
+        const offsetYcursor = (normY - 0.5) * viewH * VIRTUAL_SCALE;
 
-        const cursorX = screenCenterX + offsetX * SENSITIVITY_X;
-        const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
+        const cursorX = screenCenterX + offsetXcursor * SENSITIVITY_X;
+        const cursorY = screenCenterY + offsetYcursor * SENSITIVITY_Y;
 
         const PAD = 8;
         const clampedX = Math.max(PAD, Math.min(viewW - PAD, cursorX));
@@ -146,9 +168,9 @@
         smoothedCursor.x = lerp(smoothedCursor.x, clampedX, CURSOR_ALPHA);
         smoothedCursor.y = lerp(smoothedCursor.y, clampedY, CURSOR_ALPHA);
 
-        // --- Draw facial landmarks aligned to scaled video ---
-        const mirrorX = x => viewW - x * scaleX;
-        const scaleYf = y => y * scaleY;
+        // --- Draw all landmarks scaled + mirrored ---
+        const mirrorX = x => viewW - (x * scaleX - offsetX);
+        const scaleYf = y => y * scaleY - offsetY;
 
         const points = [
           { name: "Right Eye", x: mirrorX(rEye[0]), y: scaleYf(rEye[1]), color: "red" },
@@ -169,7 +191,7 @@
           ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
         });
 
-        // --- Grid and Cursor ---
+        // --- Grid + cursor ---
         ctx.strokeStyle = "#00FF00";
         ctx.setLineDash([8, 8]);
         ctx.lineWidth = 1;
