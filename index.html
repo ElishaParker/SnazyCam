@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Stabilized Box + Smooth Cursor</title>
+  <title>BlazeFace Virtual Joystick – Locked Box Size + Smooth Cursor</title>
 
+  <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -33,12 +34,16 @@
     let model, video, canvas, ctx;
     let smoothedBox = null, smoothedLandmarks = null;
     const SMOOTHING_ALPHA = 0.5;
-    const BOX_STABILITY = 0.15;  // smaller = more stable box
     const SENSITIVITY_X = 1.5;
     const SENSITIVITY_Y = 2.0;
 
+    // Cursor smoothing
     let smoothedCursor = { x: 0, y: 0 };
     const CURSOR_ALPHA = 0.3;
+
+    // Locked box size
+    let lockedBoxWidth = null;
+    let lockedBoxHeight = null;
 
     async function setupCamera() {
       video = document.getElementById("video");
@@ -68,32 +73,26 @@
       canvas.height = video.videoHeight || window.innerHeight;
     }
 
-    // Basic smoothing helper for coordinates
-    function lerp(a, b, t) {
-      return a + (b - a) * t;
-    }
-
-    // Stabilize bounding box position + size
-    function stabilizeBox(prev, next) {
-      if (!prev) return next;
-      return {
-        topLeft: [
-          lerp(prev.topLeft[0], next.topLeft[0], BOX_STABILITY),
-          lerp(prev.topLeft[1], next.topLeft[1], BOX_STABILITY)
-        ],
-        bottomRight: [
-          lerp(prev.bottomRight[0], next.bottomRight[0], BOX_STABILITY),
-          lerp(prev.bottomRight[1], next.bottomRight[1], BOX_STABILITY)
-        ]
-      };
-    }
-
     function smoothPoints(prev, next) {
       if (!prev) return next;
       return prev.map((p, i) => [
-        lerp(p[0], next[i][0], SMOOTHING_ALPHA),
-        lerp(p[1], next[i][1], SMOOTHING_ALPHA)
+        p[0] + SMOOTHING_ALPHA * (next[i][0] - p[0]),
+        p[1] + SMOOTHING_ALPHA * (next[i][1] - p[1])
       ]);
+    }
+
+    function smoothBox(prev, next) {
+      if (!prev) return next;
+      return {
+        topLeft: [
+          prev.topLeft[0] + SMOOTHING_ALPHA * (next.topLeft[0] - prev.topLeft[0]),
+          prev.topLeft[1] + SMOOTHING_ALPHA * (next.topLeft[1] - prev.topLeft[1])
+        ],
+        bottomRight: [
+          prev.bottomRight[0] + SMOOTHING_ALPHA * (next.bottomRight[0] - prev.bottomRight[0]),
+          prev.bottomRight[1] + SMOOTHING_ALPHA * (next.bottomRight[1] - prev.bottomRight[1])
+        ]
+      };
     }
 
     async function detectFaces() {
@@ -109,9 +108,7 @@
 
       if (predictions.length > 0) {
         const pred = predictions[0];
-
-        // Stabilize bounding box to prevent jitter
-        smoothedBox = stabilizeBox(smoothedBox, { topLeft: pred.topLeft, bottomRight: pred.bottomRight });
+        smoothedBox = smoothBox(smoothedBox, { topLeft: pred.topLeft, bottomRight: pred.bottomRight });
         smoothedLandmarks = smoothPoints(smoothedLandmarks, pred.landmarks);
 
         let [x1, y1] = smoothedBox.topLeft;
@@ -119,29 +116,36 @@
         let width = x2 - x1;
         let height = y2 - y1;
 
-        // Expand bounding box vertically (portrait)
-        const expandTop = height * 0.35;
-        const expandBottom = height * 0.35;
-        y1 = Math.max(0, y1 - expandTop);
-        y2 = Math.min(canvas.height, y2 + expandBottom);
-        height = y2 - y1;
+        // Lock box size after initial detection
+        if (!lockedBoxWidth || !lockedBoxHeight) {
+          lockedBoxWidth = width;
+          lockedBoxHeight = height * 1.7; // make taller for portrait
+        } else {
+          // Recalculate position but keep locked size
+          const boxCenterX = (x1 + x2) / 2;
+          const boxCenterY = (y1 + y2) / 2;
+          x1 = boxCenterX - lockedBoxWidth / 2;
+          x2 = boxCenterX + lockedBoxWidth / 2;
+          y1 = boxCenterY - lockedBoxHeight / 2;
+          y2 = boxCenterY + lockedBoxHeight / 2;
+        }
 
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
-        // Centers
         const boxCenterX = (x1 + x2) / 2;
         const boxCenterY = (y1 + y2) / 2;
 
-        // Offsets relative to the stabilized, taller bounding box
+        // Offsets relative to locked bounding box center
         const offsetX = nose[0] - boxCenterX;
         const offsetY = nose[1] - boxCenterY;
 
+        // Screen center
         const screenCenterX = canvas.width / 2;
         const screenCenterY = canvas.height / 2;
 
-        // Cursor (mirrored horizontally)
+        // Cursor position (mirrored horizontally)
         const cursorX = screenCenterX - offsetX * SENSITIVITY_X;
-        const cursorY = screenCenterY + offsetY * (SENSITIVITY_Y * 1.5); // slight extra scaling
+        const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
 
         // Smooth cursor movement
         if (!smoothedCursor.x && !smoothedCursor.y) {
@@ -152,14 +156,14 @@
           smoothedCursor.y += CURSOR_ALPHA * (cursorY - smoothedCursor.y);
         }
 
-        // --- Draw mirrored bounding box + landmarks ---
+        // --- Draw mirrored bounding box and landmarks ---
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
 
         ctx.strokeStyle = "lime";
         ctx.lineWidth = 3;
-        ctx.strokeRect(x1, y1, width, height);
+        ctx.strokeRect(x1, y1, lockedBoxWidth, lockedBoxHeight);
 
         const points = [
           { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
@@ -183,22 +187,25 @@
         ctx.restore();
 
         // --- Virtual Joystick Overlay ---
+        const screenMidX = canvas.width / 2;
+        const screenMidY = canvas.height / 2;
+
         ctx.strokeStyle = "#444";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(screenCenterX, 0);
-        ctx.lineTo(screenCenterX, canvas.height);
-        ctx.moveTo(0, screenCenterY);
-        ctx.lineTo(canvas.width, screenCenterY);
+        ctx.moveTo(screenMidX, 0);
+        ctx.lineTo(screenMidX, canvas.height);
+        ctx.moveTo(0, screenMidY);
+        ctx.lineTo(canvas.width, screenMidY);
         ctx.stroke();
 
-        // Cursor (nose-driven, smoothed)
+        // Cursor
         ctx.fillStyle = "#00FFFF";
         ctx.beginPath();
         ctx.arc(smoothedCursor.x, smoothedCursor.y, 8, 0, 2 * Math.PI);
         ctx.fill();
 
-        // Display offset values
+        // Debug text
         ctx.font = "16px monospace";
         ctx.fillStyle = "#00FFFF";
         ctx.fillText(`ΔX: ${Math.round(offsetX)}, ΔY: ${Math.round(offsetY)}`, 20, 30);
