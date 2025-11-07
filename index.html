@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor (Smooth Clamp + DPR safe)</title>
+  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor (Perfect Alignment)</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -16,16 +16,15 @@
       margin: 0; padding: 0; overflow: hidden; background: #000;
       width: 100%; height: 100%;
     }
-    /* Video can use object-fit to cover */
     video {
-      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
-      transform: scaleX(-1); /* mirror feed; we’ll draw landmarks un-mirrored */
-      opacity: 1;
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* mirror feed visually */
     }
-    /* Canvas must NOT object-fit; we render at 1:1 in CSS pixels */
     canvas {
       position: absolute; inset: 0;
-      width: 100vw; height: 100vh; /* CSS size equals viewport */
+      width: 100vw; height: 100vh;
       pointer-events: none;
     }
   </style>
@@ -73,18 +72,12 @@
     }
 
     function resizeCanvas() {
-      // CSS pixel viewport
       viewW = window.innerWidth;
       viewH = window.innerHeight;
       dpr = window.devicePixelRatio || 1;
-
-      // Give the canvas enough backing pixels for crisp rendering
       canvas.width  = Math.round(viewW * dpr);
       canvas.height = Math.round(viewH * dpr);
-
-      // Work in CSS pixels; scale all draws by DPR automatically
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // Clear once after transform
       ctx.clearRect(0, 0, viewW, viewH);
     }
 
@@ -98,7 +91,6 @@
       ]);
     }
 
-    // Smart deadzone clamp with gentle ease-in
     function clampSmallMovement(prev, next, threshold = CLAMP_THRESHOLD, easeFactor = CLAMP_EASE) {
       if (!prev) return next;
       return next.map((p, i) => {
@@ -113,28 +105,32 @@
 
     async function detectFaces() {
       const predictions = await model.estimateFaces(video, false);
-
-      // Clear canvas (we don't redraw video here; it's mirrored via CSS transform)
       ctx.clearRect(0, 0, viewW, viewH);
 
       if (predictions.length > 0) {
         const pred = predictions[0];
-
-        // 1) Smooth -> 2) Clamp nose jitter
         let tempSmooth = smoothPoints(smoothedLandmarks, pred.landmarks);
         smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD, CLAMP_EASE);
-
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
-        // Mirror correction against CSS-mirrored video
-        const mirroredNoseX = viewW - nose[0];
-        const mirroredNoseY = nose[1];
+        // --- ✅ SCALE LANDMARKS INTO CANVAS COORDINATE SPACE ---
+        const videoW = video.videoWidth || viewW;
+        const videoH = video.videoHeight || viewH;
+        const scaleX = viewW / videoW;
+        const scaleY = viewH / videoH;
 
-        // Normalize in CSS-pixel viewport
+        const scaled = {
+          noseX: nose[0] * scaleX,
+          noseY: nose[1] * scaleY
+        };
+        const mirroredNoseX = viewW - scaled.noseX;
+        const mirroredNoseY = scaled.noseY;
+
+        // Normalize for cursor mapping
         const normX = mirroredNoseX / viewW;
         const normY = mirroredNoseY / viewH;
 
-        // Amplified offsets around center
+        // Amplify offsets around center
         const screenCenterX = viewW / 2;
         const screenCenterY = viewH / 2;
         const offsetX = (normX - 0.5) * viewW * VIRTUAL_SCALE;
@@ -143,26 +139,24 @@
         const cursorX = screenCenterX + offsetX * SENSITIVITY_X;
         const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
 
-        // Clamp to visible viewport (use padding so dot never clips)
         const PAD = 8;
         const clampedX = Math.max(PAD, Math.min(viewW - PAD, cursorX));
         const clampedY = Math.max(PAD, Math.min(viewH - PAD, cursorY));
 
-        // Smooth cursor toward clamped target
         smoothedCursor.x = lerp(smoothedCursor.x, clampedX, CURSOR_ALPHA);
         smoothedCursor.y = lerp(smoothedCursor.y, clampedY, CURSOR_ALPHA);
 
-        // --- Draw mirrored facial landmarks in CSS pixel space ---
-        // We mirrored the video via CSS, so draw landmarks mirrored manually:
-        const mirrorX = x => viewW - x;
+        // --- Draw facial landmarks aligned to scaled video ---
+        const mirrorX = x => viewW - x * scaleX;
+        const scaleYf = y => y * scaleY;
 
         const points = [
-          { name: "Right Eye", x: mirrorX(rEye[0]), y: rEye[1], color: "red" },
-          { name: "Left Eye",  x: mirrorX(lEye[0]), y: lEye[1], color: "red" },
-          { name: "Nose",      x: mirrorX(nose[0]), y: nose[1], color: "yellow" },
-          { name: "Mouth R",   x: mirrorX(mR[0]),   y: mR[1],   color: "blue" },
-          { name: "Mouth L",   x: mirrorX(mL[0]),   y: mL[1],   color: "blue" },
-          { name: "Right Ear", x: mirrorX(rEar[0]), y: rEar[1], color: "orange" }
+          { name: "Right Eye", x: mirrorX(rEye[0]), y: scaleYf(rEye[1]), color: "red" },
+          { name: "Left Eye",  x: mirrorX(lEye[0]), y: scaleYf(lEye[1]), color: "red" },
+          { name: "Nose",      x: mirrorX(nose[0]), y: scaleYf(nose[1]), color: "yellow" },
+          { name: "Mouth R",   x: mirrorX(mR[0]),   y: scaleYf(mR[1]),   color: "blue" },
+          { name: "Mouth L",   x: mirrorX(mL[0]),   y: scaleYf(mL[1]),   color: "blue" },
+          { name: "Right Ear", x: mirrorX(rEar[0]), y: scaleYf(rEar[1]), color: "orange" }
         ];
 
         ctx.font = "14px Arial";
@@ -175,14 +169,12 @@
           ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
         });
 
-        // --- Virtual overlay grid ---
+        // --- Grid and Cursor ---
         ctx.strokeStyle = "#00FF00";
         ctx.setLineDash([8, 8]);
         ctx.lineWidth = 1;
         ctx.strokeRect(0, 0, viewW, viewH);
-
         ctx.setLineDash([]);
-        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(screenCenterX, 0);
         ctx.lineTo(screenCenterX, viewH);
@@ -190,17 +182,14 @@
         ctx.lineTo(viewW, screenCenterY);
         ctx.stroke();
 
-        // --- Cursor (amplified, smoothed, hard-clamped to viewport) ---
-        // Final safety clamp right before draw
-        const drawX = Math.max(8, Math.min(viewW - 8, smoothedCursor.x));
-        const drawY = Math.max(8, Math.min(viewH - 8, smoothedCursor.y));
+        const drawX = Math.max(PAD, Math.min(viewW - PAD, smoothedCursor.x));
+        const drawY = Math.max(PAD, Math.min(viewH - PAD, smoothedCursor.y));
 
         ctx.fillStyle = "#00FFFF";
         ctx.beginPath();
         ctx.arc(drawX, drawY, 8, 0, 2 * Math.PI);
         ctx.fill();
 
-        // Debug
         ctx.fillStyle = "#00FFFF";
         ctx.font = "16px monospace";
         ctx.fillText(`X: ${Math.round(drawX)}, Y: ${Math.round(drawY)}`, 20, 30);
