@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Full-Range Vertical Tracking (Smoothed Cursor)</title>
+  <title>BlazeFace Virtual Joystick – Portrait Box + Smoothed Cursor</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -34,12 +34,12 @@
     let model, video, canvas, ctx;
     let smoothedBox = null, smoothedLandmarks = null;
     const SMOOTHING_ALPHA = 0.5;
-    const SENSITIVITY_X = 1.5;  // horizontal multiplier
-    const SENSITIVITY_Y = 2.0;  // vertical multiplier (stronger range)
+    const SENSITIVITY_X = 1.5;
+    const SENSITIVITY_Y = 2.0;
 
-    // 🔹 Cursor smoothing
+    // Cursor smoothing
     let smoothedCursor = { x: 0, y: 0 };
-    const CURSOR_ALPHA = 0.3; // smaller = smoother, 0.3-0.5 is ideal
+    const CURSOR_ALPHA = 0.3;
 
     async function setupCamera() {
       video = document.getElementById("video");
@@ -107,26 +107,35 @@
         smoothedBox = smoothBox(smoothedBox, { topLeft: pred.topLeft, bottomRight: pred.bottomRight });
         smoothedLandmarks = smoothPoints(smoothedLandmarks, pred.landmarks);
 
-        const [x1, y1] = smoothedBox.topLeft;
-        const [x2, y2] = smoothedBox.bottomRight;
-        const width = x2 - x1, height = y2 - y1;
+        let [x1, y1] = smoothedBox.topLeft;
+        let [x2, y2] = smoothedBox.bottomRight;
+        let width = x2 - x1;
+        let height = y2 - y1;
+
+        // 🔹 Expand bounding box vertically (portrait ratio)
+        const expandTop = height * 0.35;
+        const expandBottom = height * 0.35;
+        y1 = Math.max(0, y1 - expandTop);
+        y2 = Math.min(canvas.height, y2 + expandBottom);
+        height = y2 - y1;
+
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
-        // Bounding box horizontal center only
+        // Bounding box centers
         const boxCenterX = (x1 + x2) / 2;
+        const boxCenterY = (y1 + y2) / 2;
 
         // Horizontal offset: relative to box center (mirrored)
         const offsetX = nose[0] - boxCenterX;
 
-        // Vertical offset: relative to full video frame height
-        const frameMidY = canvas.height / 2;
-        const offsetY = nose[1] - frameMidY;
+        // Vertical offset: relative to new bounding box height
+        const offsetY = ((nose[1] - boxCenterY) / (height / 2)) * (height / 2);
 
         // Screen center
         const screenCenterX = canvas.width / 2;
         const screenCenterY = canvas.height / 2;
 
-        // Cursor position (mirrored horizontally, free vertical range)
+        // Cursor position (mirrored horizontally, bounded vertically)
         const cursorX = screenCenterX - offsetX * SENSITIVITY_X;
         const cursorY = screenCenterY + offsetY * SENSITIVITY_Y;
 
