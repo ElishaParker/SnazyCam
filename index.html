@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Corrected Mirroring</title>
+  <title>BlazeFace Virtual Joystick – Final Mirror Alignment</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -13,22 +13,15 @@
 
   <style>
     html, body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
+      margin: 0; padding: 0; overflow: hidden;
       background: #000;
-      height: 100%;
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
+      height: 100%; width: 100%;
+      display: flex; justify-content: center; align-items: center;
     }
     video, canvas {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
       object-fit: cover;
     }
     #controls {
@@ -46,9 +39,7 @@
       gap: 20px;
       align-items: center;
     }
-    input[type="range"] {
-      width: 120px;
-    }
+    input[type="range"] { width: 120px; }
   </style>
 </head>
 <body>
@@ -118,6 +109,7 @@
     async function detectFaces() {
       const predictions = await model.estimateFaces(video, false);
 
+      // Draw mirrored video
       ctx.save();
       ctx.scale(-1, 1);
       ctx.translate(-canvas.width, 0);
@@ -135,20 +127,12 @@
         const width = x2 - x1, height = y2 - y1;
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
-        // --- Mirror coordinates to match display ---
-        const mirroredNoseX = canvas.width - nose[0];
-        const mirroredREyeX = canvas.width - rEye[0];
-        const mirroredLEyeX = canvas.width - lEye[0];
-        const mirroredMRX = canvas.width - mR[0];
-        const mirroredMLX = canvas.width - mL[0];
-        const mirroredREarX = canvas.width - rEar[0];
-
-        // Bounding box center (mirrored)
-        const boxCenterX = canvas.width - ((x1 + x2) / 2);
+        // Bounding box center (for relative offsets)
+        const boxCenterX = (x1 + x2) / 2;
         const boxCenterY = (y1 + y2) / 2;
 
-        // Offsets relative to box center
-        const offsetX = mirroredNoseX - boxCenterX;
+        // Offsets relative to bounding box center
+        const offsetX = nose[0] - boxCenterX;
         const offsetY = nose[1] - boxCenterY;
 
         // Browser center
@@ -159,11 +143,11 @@
         const xSens = parseFloat(document.getElementById("xSens").value);
         const ySens = parseFloat(document.getElementById("ySens").value);
 
-        // Virtual cursor
-        const cursorX = screenCenterX + offsetX * xSens;
+        // Virtual cursor (mirrored orientation)
+        const cursorX = screenCenterX - offsetX * xSens;
         const cursorY = screenCenterY + offsetY * ySens;
 
-        // --- Draw mirrored landmarks & box ---
+        // --- Draw mirrored landmarks and bounding box ---
         ctx.save();
         ctx.scale(-1, 1);
         ctx.translate(-canvas.width, 0);
@@ -173,12 +157,12 @@
         ctx.strokeRect(x1, y1, width, height);
 
         const points = [
-          { name: "Right Eye", x: mirroredREyeX, y: rEye[1], color: "red" },
-          { name: "Left Eye",  x: mirroredLEyeX, y: lEye[1], color: "red" },
-          { name: "Nose",      x: mirroredNoseX, y: nose[1], color: "yellow" },
-          { name: "Mouth R",   x: mirroredMRX,   y: mR[1],   color: "blue" },
-          { name: "Mouth L",   x: mirroredMLX,   y: mL[1],   color: "blue" },
-          { name: "Right Ear", x: mirroredREarX, y: rEar[1], color: "orange" }
+          { name: "Right Eye", x: rEye[0], y: rEye[1], color: "red" },
+          { name: "Left Eye",  x: lEye[0], y: lEye[1], color: "red" },
+          { name: "Nose",      x: nose[0], y: nose[1], color: "yellow" },
+          { name: "Mouth R",   x: mR[0], y: mR[1], color: "blue" },
+          { name: "Mouth L",   x: mL[0], y: mL[1], color: "blue" },
+          { name: "Right Ear", x: rEar[0], y: rEar[1], color: "orange" }
         ];
 
         points.forEach(pt => {
@@ -193,8 +177,7 @@
 
         ctx.restore();
 
-        // --- Virtual Joystick Overlay ---
-        // Crosshair (centered)
+        // --- Virtual Joystick Overlay (unmirrored space) ---
         ctx.strokeStyle = "#444";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -204,16 +187,16 @@
         ctx.lineTo(canvas.width, screenCenterY);
         ctx.stroke();
 
-        // Cursor (follows mirrored motion)
+        // Draw overlay cursor (nose-driven)
         ctx.fillStyle = "#00FFFF";
         ctx.beginPath();
         ctx.arc(cursorX, cursorY, 8, 0, 2 * Math.PI);
         ctx.fill();
 
-        // Display offsets
+        // Display offset data
         ctx.font = "16px monospace";
         ctx.fillStyle = "#00FFFF";
-        ctx.fillText(`ΔX: ${Math.round(offsetX)} ΔY: ${Math.round(offsetY)}`, 20, 30);
+        ctx.fillText(`ΔX: ${Math.round(offsetX)}, ΔY: ${Math.round(offsetY)}`, 20, 30);
       }
 
       requestAnimationFrame(detectFaces);
