@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor (with Nose Clamp)</title>
+  <title>BlazeFace Virtual Joystick – Amplified Full Viewport Cursor (Smooth Clamp)</title>
 
   <!-- TensorFlow.js + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -39,7 +39,8 @@
     const SENSITIVITY_X = 1.0;
     const SENSITIVITY_Y = 1.0;
     const VIRTUAL_SCALE = 10; // Amplified cursor range
-    const CLAMP_THRESHOLD = 1; // px — deadzone for nose jitter
+    const CLAMP_THRESHOLD = 5; // px — deadzone for nose jitter
+    const CLAMP_EASE = 0.2; // gentle motion ramp when unfreezing
 
     let smoothedCursor = { x: 0, y: 0 };
 
@@ -78,20 +79,30 @@
     // --- Landmark smoothing ---
     function smoothPoints(prev, next) {
       if (!prev) return next;
-      return prev.map((p, i) => [
+      return next.map((p, i) => [
         lerp(p[0], next[i][0], SMOOTHING_ALPHA),
         lerp(p[1], next[i][1], SMOOTHING_ALPHA)
       ]);
     }
 
-    // --- Deadzone clamp: ignore micro movements under 5px ---
-    function clampSmallMovement(prev, next, threshold = CLAMP_THRESHOLD) {
+    // --- Smart deadzone clamp with gentle ease-in ---
+    function clampSmallMovement(prev, next, threshold = CLAMP_THRESHOLD, easeFactor = CLAMP_EASE) {
       if (!prev) return next;
+
       return next.map((p, i) => {
         const dx = p[0] - prev[i][0];
         const dy = p[1] - prev[i][1];
         const dist = Math.sqrt(dx * dx + dy * dy);
-        return dist < threshold ? prev[i] : p;
+
+        // Freeze small jitter completely
+        if (dist < threshold) return prev[i];
+
+        // Ease into new movement gradually when breaking threshold
+        const t = Math.min(1, easeFactor * dist / threshold);
+        return [
+          prev[i][0] + dx * t,
+          prev[i][1] + dy * t
+        ];
       });
     }
 
@@ -112,8 +123,8 @@
         // Step 1: Smooth normally
         let tempSmooth = smoothPoints(smoothedLandmarks, pred.landmarks);
 
-        // Step 2: Clamp tiny wobble under threshold
-        smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD);
+        // Step 2: Apply soft clamp
+        smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD, CLAMP_EASE);
 
         const [rEye, lEye, nose, mR, mL, rEar] = smoothedLandmarks;
 
