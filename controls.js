@@ -1,79 +1,136 @@
-// 
-(function() {
-  const panel = document.createElement('div');
-  panel.id = 'controls';
-  panel.innerHTML = `
-    <h3>Tracking Settings</h3>
-    <div class="slider-group">
-      ${[
-        ['SMOOTHING_ALPHA', 0.1, 0.01, 0.5, 0.01],
-        ['NOSE_SMOOTH_ALPHA', 0.08, 0.01, 0.5, 0.01],
-        ['CURSOR_ALPHA', 0.2, 0.01, 0.5, 0.01],
-        ['SENSITIVITY_X', 1.0, 0.1, 3, 0.1],
-        ['SENSITIVITY_Y', 1.0, 0.1, 3, 0.1],
-        ['VIRTUAL_SCALE', 15, 1, 30, 1],
-        ['CLAMP_THRESHOLD', 1.0, 0, 10, 0.1],
-        ['CLAMP_EASE', 0.05, 0.01, 0.5, 0.01],
-        ['VERTICAL_FINE_TUNE', 15, -100, 100, 1],
-        ['HORIZONTAL_FINE_TUNE', 25, -100, 100, 1]
-      ].map(([id, val, min, max, step]) => `
-        <label>${id} <span id="val_${id}">${val}</span></label>
-        <input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${val}">
-      `).join('')}
-    </div>
-    <button id="toggleBtn">⚙️</button>
-  `;
+(() => {
+  // ---- Default benchmark settings ----
+  const defaults = {
+    SMOOTHING_ALPHA: 0.1,
+    NOSE_SMOOTH_ALPHA: 0.08,
+    CURSOR_ALPHA: 0.2,
+    SENSITIVITY_X: 1.0,
+    SENSITIVITY_Y: 1.0,
+    VIRTUAL_SCALE: 15,
+    CLAMP_THRESHOLD: 1.0,
+    CLAMP_EASE: 0.05,
+    VERTICAL_FINE_TUNE: 15,
+    HORIZONTAL_FINE_TUNE: 25,
+  };
+
+  // Create the control panel container
+  const panel = document.createElement("div");
+  panel.style.position = "fixed";
+  panel.style.bottom = "20px";
+  panel.style.right = "20px";
+  panel.style.background = "rgba(0, 0, 0, 0.7)";
+  panel.style.border = "1px solid #00ffff";
+  panel.style.borderRadius = "12px";
+  panel.style.padding = "12px";
+  panel.style.color = "#00ffff";
+  panel.style.fontFamily = "monospace";
+  panel.style.fontSize = "13px";
+  panel.style.zIndex = "9999";
+  panel.style.transition = "all 0.3s ease";
+  panel.style.maxWidth = "260px";
+  panel.style.backdropFilter = "blur(6px)";
+  panel.style.overflow = "hidden";
+
+  // Collapsible toggle button
+  const toggleButton = document.createElement("button");
+  toggleButton.textContent = "⚙️ Controls";
+  toggleButton.style.position = "fixed";
+  toggleButton.style.bottom = "20px";
+  toggleButton.style.right = "20px";
+  toggleButton.style.zIndex = "9998";
+  toggleButton.style.background = "#00ffff";
+  toggleButton.style.color = "#000";
+  toggleButton.style.fontWeight = "bold";
+  toggleButton.style.border = "none";
+  toggleButton.style.borderRadius = "20px";
+  toggleButton.style.padding = "8px 14px";
+  toggleButton.style.cursor = "pointer";
+  toggleButton.style.boxShadow = "0 0 10px #00ffff88";
+  toggleButton.style.transition = "0.3s ease";
+
+  let visible = true;
+  toggleButton.onclick = () => {
+    visible = !visible;
+    panel.style.opacity = visible ? "1" : "0";
+    panel.style.pointerEvents = visible ? "auto" : "none";
+    panel.style.transform = visible ? "scale(1)" : "scale(0.9)";
+  };
+
   document.body.appendChild(panel);
+  document.body.appendChild(toggleButton);
 
-  // Styles
-  const style = document.createElement('style');
-  style.textContent = `
-    #controls {
-      position: fixed; bottom: 10px; right: 10px;
-      background: rgba(0,0,0,0.7);
-      color: #0ff;
-      padding: 10px 14px;
-      border: 1px solid #0ff;
-      border-radius: 10px;
-      font-family: monospace;
-      width: 260px;
-      max-height: 90vh;
-      overflow-y: auto;
-      z-index: 9999;
-      transition: transform 0.3s ease, opacity 0.3s ease;
-    }
-    #controls.collapsed { transform: translateY(90%); opacity: 0.5; }
-    #controls h3 {
-      margin: 0 0 10px; font-size: 14px; text-align: center; color: #00ffff;
-    }
-    .slider-group label { display:block; margin-top:6px; font-size:12px; }
-    .slider-group input[type=range] { width:100%; accent-color:#00ffff; }
-    #toggleBtn {
-      position:absolute; top:-30px; right:0;
-      background:#00ffff; color:#000;
-      border:none; border-radius:6px 6px 0 0;
-      cursor:pointer; padding:4px 8px;
-    }
-  `;
-  document.head.appendChild(style);
+  // Helper to create labeled sliders
+  function addSlider(label, key, min, max, step) {
+    const container = document.createElement("div");
+    container.style.marginBottom = "8px";
 
-  // Toggle visibility
-  const toggleBtn = panel.querySelector('#toggleBtn');
-  toggleBtn.addEventListener('click', () => panel.classList.toggle('collapsed'));
+    const text = document.createElement("label");
+    text.textContent = `${label}: `;
+    text.style.display = "block";
 
-  // Attach live updates to globals
-  const ids = [
-    'SMOOTHING_ALPHA','NOSE_SMOOTH_ALPHA','CURSOR_ALPHA',
-    'SENSITIVITY_X','SENSITIVITY_Y','VIRTUAL_SCALE',
-    'CLAMP_THRESHOLD','CLAMP_EASE','VERTICAL_FINE_TUNE','HORIZONTAL_FINE_TUNE'
-  ];
-  ids.forEach(id => {
-    const input = document.getElementById(id);
-    const valLabel = document.getElementById(`val_${id}`);
-    input.addEventListener('input', () => {
-      window[id] = parseFloat(input.value);
-      valLabel.textContent = input.value;
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = min;
+    slider.max = max;
+    slider.step = step;
+    slider.value = window[key] ?? defaults[key];
+    slider.style.width = "100%";
+
+    const valLabel = document.createElement("span");
+    valLabel.textContent = slider.value;
+
+    slider.oninput = () => {
+      const v = parseFloat(slider.value);
+      window[key] = v;
+      valLabel.textContent = v.toFixed(3);
+    };
+
+    text.appendChild(valLabel);
+    container.appendChild(text);
+    container.appendChild(slider);
+    panel.appendChild(container);
+  }
+
+  // Create sliders for all tuning variables
+  addSlider("Smoothing Alpha", "SMOOTHING_ALPHA", 0.01, 0.5, 0.01);
+  addSlider("Nose Smooth Alpha", "NOSE_SMOOTH_ALPHA", 0.01, 0.5, 0.01);
+  addSlider("Cursor Alpha", "CURSOR_ALPHA", 0.01, 0.5, 0.01);
+  addSlider("Sensitivity X", "SENSITIVITY_X", 0.1, 5, 0.1);
+  addSlider("Sensitivity Y", "SENSITIVITY_Y", 0.1, 5, 0.1);
+  addSlider("Virtual Scale", "VIRTUAL_SCALE", 1, 30, 1);
+  addSlider("Clamp Threshold", "CLAMP_THRESHOLD", 0.1, 10, 0.1);
+  addSlider("Clamp Ease", "CLAMP_EASE", 0.01, 1, 0.01);
+  addSlider("Vertical Fine Tune", "VERTICAL_FINE_TUNE", -100, 100, 1);
+  addSlider("Horizontal Fine Tune", "HORIZONTAL_FINE_TUNE", -100, 100, 1);
+
+  // Add Reset button
+  const resetButton = document.createElement("button");
+  resetButton.textContent = "🔄 Reset to Default";
+  resetButton.style.marginTop = "10px";
+  resetButton.style.width = "100%";
+  resetButton.style.padding = "6px";
+  resetButton.style.border = "none";
+  resetButton.style.borderRadius = "6px";
+  resetButton.style.cursor = "pointer";
+  resetButton.style.background = "#00ffff";
+  resetButton.style.color = "#000";
+  resetButton.style.fontWeight = "bold";
+  resetButton.onmouseenter = () => (resetButton.style.opacity = "0.8");
+  resetButton.onmouseleave = () => (resetButton.style.opacity = "1.0");
+
+  resetButton.onclick = () => {
+    for (const [key, val] of Object.entries(defaults)) {
+      window[key] = val;
+    }
+    panel.querySelectorAll("input[type=range]").forEach(input => {
+      const key = Object.keys(defaults).find(k => k === input.parentElement.textContent.split(":")[0].trim().replace(/ /g, "_").toUpperCase());
+      if (key) input.value = defaults[key];
+      const label = input.parentElement.querySelector("span");
+      if (label) label.textContent = defaults[key];
     });
-  });
-})();
+  };
 
+  panel.appendChild(resetButton);
+
+  console.log("✅ Controls initialized");
+})();
