@@ -1,55 +1,45 @@
 (() => {
   // ---- Default benchmark settings ----
-  const defaults = {
-    SMOOTHING_ALPHA: 0.1,
-    NOSE_SMOOTH_ALPHA: 0.08,
-    CURSOR_ALPHA: 0.2,
-    SENSITIVITY_X: 1.0,
-    SENSITIVITY_Y: 1.0,
-    VIRTUAL_SCALE: 15,
-    CLAMP_THRESHOLD: 1.0,
-    CLAMP_EASE: 0.05,
-    VERTICAL_FINE_TUNE: 15,
-    HORIZONTAL_FINE_TUNE: 25,
-  };
+  const descriptors = [
+    { key: 'SMOOTHING_ALPHA',     label: 'Smoothing Alpha',     min: 0.01, max: 0.5,  step: 0.01, def: 0.1  },
+    { key: 'NOSE_SMOOTH_ALPHA',   label: 'Nose Smooth Alpha',   min: 0.01, max: 0.5,  step: 0.01, def: 0.08 },
+    { key: 'CURSOR_ALPHA',        label: 'Cursor Alpha',        min: 0.01, max: 0.5,  step: 0.01, def: 0.2  },
+    { key: 'SENSITIVITY_X',       label: 'Sensitivity X',       min: 0.1,  max: 5,    step: 0.1,  def: 1.0  },
+    { key: 'SENSITIVITY_Y',       label: 'Sensitivity Y',       min: 0.1,  max: 5,    step: 0.1,  def: 1.0  },
+    { key: 'VIRTUAL_SCALE',       label: 'Virtual Scale',       min: 1,    max: 30,   step: 1,    def: 15   },
+    { key: 'CLAMP_THRESHOLD',     label: 'Clamp Threshold',     min: 0.1,  max: 10,   step: 0.1,  def: 1.0  },
+    { key: 'CLAMP_EASE',          label: 'Clamp Ease',          min: 0.01, max: 1,    step: 0.01, def: 0.05 },
+    { key: 'VERTICAL_FINE_TUNE',  label: 'Vertical Fine Tune',  min: -100, max: 100,  step: 1,    def: 15   },
+    { key: 'HORIZONTAL_FINE_TUNE',label: 'Horizontal Fine Tune',min: -100, max: 100,  step: 1,    def: 25   },
+  ];
+
+  // Ensure globals exist (use defaults if undefined)
+  descriptors.forEach(d => {
+    if (typeof window[d.key] === 'undefined') window[d.key] = d.def;
+  });
 
   // --- Panel container ---
   const panel = document.createElement("div");
-  panel.style.position = "fixed";
-  panel.style.bottom = "60px";
-  panel.style.right = "10px";
-  panel.style.background = "rgba(0, 0, 0, 0.8)";
-  panel.style.border = "1px solid #00ffff";
-  panel.style.borderRadius = "12px";
-  panel.style.padding = "12px";
-  panel.style.color = "#00ffff";
-  panel.style.fontFamily = "monospace";
-  panel.style.fontSize = "13px";
-  panel.style.zIndex = "9999";
-  panel.style.transition = "all 0.3s ease";
-  panel.style.maxWidth = "260px";
-  panel.style.backdropFilter = "blur(6px)";
-  panel.style.overflow = "hidden";
-  panel.style.opacity = "1";
-  panel.style.transform = "scale(1)";
-  panel.style.pointerEvents = "auto";
+  Object.assign(panel.style, {
+    position: "fixed", bottom: "60px", right: "10px",
+    background: "rgba(0,0,0,0.8)", border: "1px solid #00ffff",
+    borderRadius: "12px", padding: "12px", color: "#00ffff",
+    fontFamily: "monospace", fontSize: "13px", zIndex: "9999",
+    transition: "all 0.3s ease", maxWidth: "260px",
+    backdropFilter: "blur(6px)", overflow: "hidden",
+    opacity: "1", transform: "scale(1)", pointerEvents: "auto"
+  });
 
   // --- Toggle button ---
   const toggleButton = document.createElement("button");
   toggleButton.textContent = "Close Controls";
-  toggleButton.style.position = "fixed";
-  toggleButton.style.bottom = "10px";
-  toggleButton.style.right = "10px";
-  toggleButton.style.background = "#00ffff";
-  toggleButton.style.color = "#000";
-  toggleButton.style.fontWeight = "bold";
-  toggleButton.style.border = "none";
-  toggleButton.style.borderRadius = "20px";
-  toggleButton.style.padding = "8px 14px";
-  toggleButton.style.cursor = "pointer";
-  toggleButton.style.boxShadow = "0 0 10px #00ffff88";
-  toggleButton.style.zIndex = "10000";
-  toggleButton.style.transition = "0.3s ease";
+  Object.assign(toggleButton.style, {
+    position: "fixed", bottom: "10px", right: "10px",
+    background: "#00ffff", color: "#000", fontWeight: "bold",
+    border: "none", borderRadius: "20px", padding: "8px 14px",
+    cursor: "pointer", boxShadow: "0 0 10px #00ffff88", zIndex: "10000",
+    transition: "0.3s ease"
+  });
 
   let visible = true;
   toggleButton.onclick = () => {
@@ -63,76 +53,65 @@
   document.body.appendChild(panel);
   document.body.appendChild(toggleButton);
 
-  // --- Slider helper ---
-  function addSlider(label, key, min, max, step) {
-    const container = document.createElement("div");
-    container.style.marginBottom = "8px";
+  // Title
+  const title = document.createElement('div');
+  title.textContent = 'Tracking Settings';
+  Object.assign(title.style, { textAlign:'center', marginBottom:'8px', color:'#00ffff', fontWeight:'bold' });
+  panel.appendChild(title);
 
-    const text = document.createElement("label");
-    text.textContent = `${label}: `;
-    text.style.display = "block";
+  // --- Build sliders ---
+  const inputs = new Map(); // key -> {input, valueEl}
 
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.min = min;
-    slider.max = max;
-    slider.step = step;
-    slider.value = window[key] ?? defaults[key];
-    slider.style.width = "100%";
+  descriptors.forEach(d => {
+    const wrap = document.createElement('div');
+    wrap.style.marginBottom = '8px';
 
-    const valLabel = document.createElement("span");
-    valLabel.textContent = slider.value;
+    const label = document.createElement('label');
+    label.textContent = `${d.label}: `;
+    label.style.display = 'block';
 
-    slider.oninput = () => {
-      const v = parseFloat(slider.value);
-      window[key] = v;
-      valLabel.textContent = v.toFixed(3);
+    const valueEl = document.createElement('span');
+    valueEl.textContent = Number(window[d.key]).toFixed(d.step < 1 ? 2 : 0);
+    label.appendChild(valueEl);
+
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = d.min;
+    input.max = d.max;
+    input.step = d.step;
+    input.value = window[d.key];
+    input.dataset.key = d.key; // <-- bind exact key
+    input.style.width = '100%';
+    input.oninput = () => {
+      const v = parseFloat(input.value);
+      window[d.key] = v;
+      valueEl.textContent = Number(v).toFixed(d.step < 1 ? 2 : 0);
     };
 
-    text.appendChild(valLabel);
-    container.appendChild(text);
-    container.appendChild(slider);
-    panel.appendChild(container);
-  }
-
-  // --- Sliders ---
-  addSlider("Smoothing Alpha", "SMOOTHING_ALPHA", 0.01, 0.5, 0.01);
-  addSlider("Nose Smooth Alpha", "NOSE_SMOOTH_ALPHA", 0.01, 0.5, 0.01);
-  addSlider("Cursor Alpha", "CURSOR_ALPHA", 0.01, 0.5, 0.01);
-  addSlider("Sensitivity X", "SENSITIVITY_X", 0.1, 5, 0.1);
-  addSlider("Sensitivity Y", "SENSITIVITY_Y", 0.1, 5, 0.1);
-  addSlider("Virtual Scale", "VIRTUAL_SCALE", 1, 30, 1);
-  addSlider("Clamp Threshold", "CLAMP_THRESHOLD", 0.1, 10, 0.1);
-  addSlider("Clamp Ease", "CLAMP_EASE", 0.01, 1, 0.01);
-  addSlider("Vertical Fine Tune", "VERTICAL_FINE_TUNE", -100, 100, 1);
-  addSlider("Horizontal Fine Tune", "HORIZONTAL_FINE_TUNE", -100, 100, 1);
+    inputs.set(d.key, { input, valueEl, desc: d });
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    panel.appendChild(wrap);
+  });
 
   // --- Reset button ---
   const resetButton = document.createElement("button");
   resetButton.textContent = "🔄 Reset to Default";
-  resetButton.style.marginTop = "10px";
-  resetButton.style.width = "100%";
-  resetButton.style.padding = "6px";
-  resetButton.style.border = "none";
-  resetButton.style.borderRadius = "6px";
-  resetButton.style.cursor = "pointer";
-  resetButton.style.background = "#00ffff";
-  resetButton.style.color = "#000";
-  resetButton.style.fontWeight = "bold";
-  resetButton.onmouseenter = () => (resetButton.style.opacity = "0.8");
+  Object.assign(resetButton.style, {
+    marginTop: "10px", width: "100%", padding: "6px",
+    border: "none", borderRadius: "6px", cursor: "pointer",
+    background: "#00ffff", color: "#000", fontWeight: "bold"
+  });
+  resetButton.onmouseenter = () => (resetButton.style.opacity = "0.85");
   resetButton.onmouseleave = () => (resetButton.style.opacity = "1.0");
 
   resetButton.onclick = () => {
-    for (const [key, val] of Object.entries(defaults)) {
-      window[key] = val;
-    }
-    panel.querySelectorAll("input[type=range]").forEach(input => {
-      const labelText = input.previousSibling.textContent.split(":")[0].trim();
-      const key = Object.keys(defaults).find(k => k.replace(/_/g, " ") === labelText);
-      if (key) {
-        input.value = defaults[key];
-        const label = input.previousSibling.querySelector("span");
-        if (label) label.textContent = defaults[key];
+    descriptors.forEach(d => {
+      window[d.key] = d.def;
+      const rec = inputs.get(d.key);
+      if (rec) {
+        rec.input.value = d.def;
+        rec.valueEl.textContent = Number(d.def).toFixed(d.step < 1 ? 2 : 0);
       }
     });
   };
