@@ -11,22 +11,23 @@
     { key: 'CLAMP_EASE',          label: 'Clamp Ease',          min: 0.01, max: 1,    step: 0.01, def: 0.05 },
     { key: 'VERTICAL_FINE_TUNE',  label: 'Vertical Fine Tune',  min: -100, max: 100,  step: 1,    def: 15   },
     { key: 'HORIZONTAL_FINE_TUNE',label: 'Horizontal Fine Tune',min: -100, max: 100,  step: 1,    def: 25   },
-    { key: 'HOVER_TIME',           label: 'Hover Time (ms)',      min: 500,  max: 3000, step: 100,  def: 1500 },
-    { key: 'CURSOR_RADIUS',        label: 'Cursor Radius',        min: 5,    max: 100,  step: 1,    def: 15   }
+    { key: 'HOVER_TIME',          label: 'Hover Time (ms)',     min: 500,  max: 3000, step: 100,  def: 1500 },
+    { key: 'CURSOR_RADIUS',       label: 'Cursor Radius',       min: 5,    max: 100,  step: 1,    def: 15   }
   ];
 
-  // Ensure globals exist (use defaults if undefined)
+  // Ensure globals exist
   descriptors.forEach(d => {
     if (typeof window[d.key] === 'undefined') window[d.key] = d.def;
   });
 
-  // --- Panel container ---
+  // --- Control panel container ---
   const panel = document.createElement("div");
   Object.assign(panel.style, {
     position: "fixed", bottom: "60px", right: "10px",
     background: "rgba(0,0,0,0.8)", border: "1px solid #00ffff",
     borderRadius: "12px", padding: "12px", color: "#00ffff",
-    fontFamily: "monospace", fontSize: "13px", zIndex: "9999",
+    fontFamily: "monospace", fontSize: "13px",
+    zIndex: "9998", /* 👈 Below cursor and hover wheel */
     transition: "all 0.3s ease", maxWidth: "260px",
     backdropFilter: "blur(6px)", overflow: "hidden",
     opacity: "1", transform: "scale(1)", pointerEvents: "auto"
@@ -39,7 +40,8 @@
     position: "fixed", bottom: "10px", right: "10px",
     background: "#00ffff", color: "#000", fontWeight: "bold",
     border: "none", borderRadius: "20px", padding: "8px 14px",
-    cursor: "pointer", boxShadow: "0 0 10px #00ffff88", zIndex: "10000",
+    cursor: "pointer", boxShadow: "0 0 10px #00ffff88",
+    zIndex: "9998", /* 👈 Same as panel, stays below cursor */
     transition: "0.3s ease"
   });
 
@@ -61,8 +63,8 @@
   Object.assign(title.style, { textAlign:'center', marginBottom:'8px', color:'#00ffff', fontWeight:'bold' });
   panel.appendChild(title);
 
-  // --- Build sliders ---
-  const inputs = new Map(); // key -> {input, valueEl}
+  // --- Build sliders dynamically ---
+  const inputs = new Map();
 
   descriptors.forEach(d => {
     const wrap = document.createElement('div');
@@ -82,7 +84,7 @@
     input.max = d.max;
     input.step = d.step;
     input.value = window[d.key];
-    input.dataset.key = d.key; // <-- bind exact key
+    input.dataset.key = d.key;
     input.style.width = '100%';
     input.oninput = () => {
       const v = parseFloat(input.value);
