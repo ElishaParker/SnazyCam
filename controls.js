@@ -11,6 +11,8 @@
     { key: 'CLAMP_EASE',          label: 'Clamp Ease',          min: 0.01, max: 1,    step: 0.01, def: 0.05 },
     { key: 'VERTICAL_FINE_TUNE',  label: 'Vertical Fine Tune',  min: -100, max: 100,  step: 1,    def: 15   },
     { key: 'HORIZONTAL_FINE_TUNE',label: 'Horizontal Fine Tune',min: -100, max: 100,  step: 1,    def: 25   },
+    { key: 'HOVER_TIME',           label: 'Hover Time (ms)',      min: 500,  max: 3000, step: 100,  def: 1500 },
+    { key: 'CURSOR_RADIUS',        label: 'Cursor Radius',        min: 5,    max: 100,  step: 1,    def: 15   }
   ];
 
   // Ensure globals exist (use defaults if undefined)
