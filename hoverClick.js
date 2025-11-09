@@ -1,15 +1,13 @@
 // hoverClick.js
 (function() {
-  // --- Configurable defaults (can be overridden by control panel sliders)
   window.HOVER_TIME = window.HOVER_TIME || 1500;   // ms to trigger click
-  window.CURSOR_RADIUS = window.CURSOR_RADIUS || 15; // jitter tolerance radius
+  window.CURSOR_RADIUS = window.CURSOR_RADIUS || 15;
 
   let hoverTarget = null;
   let hoverStart = null;
   let hoverProgress = 0;
-  let lastX = 0, lastY = 0;
 
-  // --- Create loading wheel overlay ---
+  // --- Loading wheel ---
   const wheel = document.createElement("div");
   Object.assign(wheel.style, {
     position: "fixed",
@@ -21,12 +19,12 @@
     pointerEvents: "none",
     transition: "opacity 0.2s ease, transform 0.1s linear",
     opacity: 0,
-    zIndex: 9999, // keep above everything
+    zIndex: 9999,
     transform: "rotate(0deg)",
   });
   document.body.appendChild(wheel);
 
-  // --- Helper to update the wheel’s position and rotation ---
+  // --- Helper ---
   function updateWheel(x, y, progress) {
     wheel.style.left = `${x - 20}px`;
     wheel.style.top = `${y - 20}px`;
@@ -34,71 +32,68 @@
     wheel.style.opacity = progress > 0 ? 1 : 0;
   }
 
-  // --- Distance helper for jitter tolerance ---
-  function distance(x1, y1, x2, y2) {
-    return Math.hypot(x2 - x1, y2 - y1);
+  // --- Handle cursor hover state updates ---
+  function startHover(el) {
+    hoverTarget = el;
+    hoverStart = performance.now();
+    hoverProgress = 0;
+  }
+  function endHover() {
+    hoverTarget = null;
+    hoverStart = null;
+    hoverProgress = 0;
+    wheel.style.opacity = 0;
   }
 
-  // --- Main hover tracking loop ---
+  // --- Bind to all clickable elements dynamically ---
+  function bindHoverEvents() {
+    const clickables = document.querySelectorAll(
+      "button, [onclick], [data-hover-click], input, .clickable"
+    );
+    clickables.forEach(el => {
+      el.addEventListener("mouseenter", () => startHover(el));
+      el.addEventListener("mouseleave", endHover);
+    });
+  }
+  bindHoverEvents();
+
+  // --- MutationObserver to rebind if new buttons appear ---
+  const observer = new MutationObserver(bindHoverEvents);
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // --- Main animation loop ---
   function loop() {
-    if (!window.smoothedCursor) {
-      requestAnimationFrame(loop);
-      return;
-    }
+    if (!window.smoothedCursor) return requestAnimationFrame(loop);
 
     const { x, y } = window.smoothedCursor;
-    const hoverRadius = window.CURSOR_RADIUS;
-    const hoverTime = window.HOVER_TIME;
 
-    // Find topmost clickable element under cursor
-    const elements = document.elementsFromPoint(x, y);
-    const clickable = elements.find(el =>
-      el.matches("button, [onclick], [data-hover-click], input, .clickable")
-    );
+    // Update wheel position
+    updateWheel(x, y, hoverProgress);
 
-    if (clickable) {
-      // If a new target, start hover timer
-      if (hoverTarget !== clickable) {
-        hoverTarget = clickable;
-        hoverStart = performance.now();
-      }
-
-      // If cursor moved too far, reset timer
-      if (distance(x, y, lastX, lastY) > hoverRadius) {
-        hoverStart = performance.now();
-      }
-
+    if (hoverTarget && hoverStart) {
       const elapsed = performance.now() - hoverStart;
-      hoverProgress = Math.min(elapsed / hoverTime, 1);
-      updateWheel(x, y, hoverProgress);
+      hoverProgress = Math.min(elapsed / window.HOVER_TIME, 1);
 
+      // If we hit full dwell time → click
       if (hoverProgress >= 1) {
         hoverTarget.click();
-        hoverTarget = null;
-        hoverStart = null;
-        hoverProgress = 0;
-        updateWheel(x, y, 0);
+        endHover();
       }
-    } else {
-      // Reset when leaving target
-      hoverTarget = null;
-      hoverStart = null;
-      hoverProgress = 0;
-      updateWheel(x, y, 0);
     }
-
-    lastX = x;
-    lastY = y;
 
     requestAnimationFrame(loop);
   }
 
-  // --- CSS animation (for fallback) ---
+  // --- Wheel spin CSS (for fallback visual) ---
   const style = document.createElement("style");
   style.textContent = `
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
+    }
+    button:hover, [data-hover-click]:hover {
+      outline: 2px solid #00ffff;
+      box-shadow: 0 0 10px #00ffff88;
     }
   `;
   document.head.appendChild(style);
