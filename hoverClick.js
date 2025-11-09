@@ -1,81 +1,90 @@
 // hoverClick.js
-(function () {
-  const HOVER_TIME = 1500; // ms to trigger click
-  const CHECK_INTERVAL = 50; // how often to check position
-  const CURSOR_RADIUS = 15; // radius to consider "hovering"
+(function() {
+  // --- Configurable defaults (will be overridden by menu sliders if present)
+  window.HOVER_TIME = window.HOVER_TIME || 1500;  // ms to trigger click
+  window.CURSOR_RADIUS = window.CURSOR_RADIUS || 15; // detection radius
 
   let hoverTarget = null;
-  let hoverStart = 0;
-  let progressEl = null;
+  let hoverStart = null;
+  let hoverProgress = 0;
 
-  // Create loading circle overlay
-  progressEl = document.createElement("div");
-  progressEl.id = "hoverProgress";
-  progressEl.style.cssText = `
-    position: fixed;
-    width: 40px; height: 40px;
-    border-radius: 50%;
-    border: 3px solid #00FFFF;
-    border-top-color: transparent;
-    pointer-events: none;
-    z-index: 9999;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  `;
-  document.body.appendChild(progressEl);
+  // Create loading wheel overlay
+  const wheel = document.createElement("div");
+  wheel.style.position = "fixed";
+  wheel.style.width = "40px";
+  wheel.style.height = "40px";
+  wheel.style.border = "3px solid rgba(0,255,255,0.4)";
+  wheel.style.borderTopColor = "#00ffff";
+  wheel.style.borderRadius = "50%";
+  wheel.style.pointerEvents = "none";
+  wheel.style.zIndex = 9998;
+  wheel.style.transition = "opacity 0.2s ease";
+  wheel.style.opacity = 0;
+  document.body.appendChild(wheel);
 
-  // Animation for the circular loader
-  let rotation = 0;
-  function updateProgress(percent) {
-    rotation += 8;
-    progressEl.style.transform = `translate(-50%, -50%) rotate(${rotation}deg) scale(${1 + percent * 0.3})`;
-    progressEl.style.borderTopColor = percent > 0.7 ? "#0F0" : "#00FFFF";
+  function updateWheel(x, y, progress) {
+    wheel.style.left = (x - 20) + "px";
+    wheel.style.top = (y - 20) + "px";
+    wheel.style.transform = `rotate(${progress * 360}deg)`;
+    wheel.style.opacity = progress > 0 ? 1 : 0;
   }
 
-  function isHovering(element, cursorX, cursorY) {
-    const rect = element.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const dx = cx - cursorX;
-    const dy = cy - cursorY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    return dist < CURSOR_RADIUS + Math.min(rect.width, rect.height) / 2;
+  function isHoveringOver(el, x, y, radius) {
+    const rect = el.getBoundingClientRect();
+    const cx = (rect.left + rect.right) / 2;
+    const cy = (rect.top + rect.bottom) / 2;
+    const dx = x - cx;
+    const dy = y - cy;
+    return (
+      x >= rect.left - radius &&
+      x <= rect.right + radius &&
+      y >= rect.top - radius &&
+      y <= rect.bottom + radius
+    );
   }
 
-  // Check cursor vs DOM elements
-  setInterval(() => {
-    if (!window.smoothedCursor) return;
+  function loop() {
+    if (!window.smoothedCursor) {
+      requestAnimationFrame(loop);
+      return;
+    }
 
-    const cursorX = window.smoothedCursor.x;
-    const cursorY = window.smoothedCursor.y;
+    const { x, y } = window.smoothedCursor;
+    const hoverRadius = window.CURSOR_RADIUS;
+    const hoverTime = window.HOVER_TIME;
 
-    // Find the topmost clickable element
-    const elements = [...document.querySelectorAll("button, a, [data-hoverclick]")];
-    const target = elements.find(el => isHovering(el, cursorX, cursorY));
+    // Find topmost clickable element under cursor
+    const elements = document.elementsFromPoint(x, y);
+    const clickable = elements.find(el =>
+      el.matches("button, [onclick], [data-hover-click], input, .clickable")
+    );
 
-    if (target) {
-      if (hoverTarget !== target) {
-        hoverTarget = target;
-        hoverStart = Date.now();
-        progressEl.style.opacity = "1";
-      } else {
-        const elapsed = Date.now() - hoverStart;
-        const percent = Math.min(1, elapsed / HOVER_TIME);
-        updateProgress(percent);
+    if (clickable) {
+      if (hoverTarget !== clickable) {
+        hoverTarget = clickable;
+        hoverStart = performance.now();
+      }
 
-        // Update progress circle position
-        progressEl.style.left = `${cursorX}px`;
-        progressEl.style.top = `${cursorY}px`;
+      const elapsed = performance.now() - hoverStart;
+      hoverProgress = Math.min(elapsed / hoverTime, 1);
+      updateWheel(x, y, hoverProgress);
 
-        if (elapsed >= HOVER_TIME) {
-          hoverTarget.click(); // Trigger the click
-          progressEl.style.opacity = "0";
-          hoverTarget = null;
-        }
+      if (hoverProgress >= 1) {
+        hoverTarget.click();
+        hoverTarget = null;
+        hoverStart = null;
+        hoverProgress = 0;
+        updateWheel(x, y, 0);
       }
     } else {
       hoverTarget = null;
-      progressEl.style.opacity = "0";
+      hoverStart = null;
+      hoverProgress = 0;
+      updateWheel(x, y, 0);
     }
-  }, CHECK_INTERVAL);
+
+    requestAnimationFrame(loop);
+  }
+
+  loop();
 })();
