@@ -1,49 +1,45 @@
 // hoverClick.js
 (function() {
-  // --- Configurable defaults (will be overridden by menu sliders if present)
-  window.HOVER_TIME = window.HOVER_TIME || 1500;  // ms to trigger click
-  window.CURSOR_RADIUS = window.CURSOR_RADIUS || 15; // detection radius
+  // --- Configurable defaults (can be overridden by control panel sliders)
+  window.HOVER_TIME = window.HOVER_TIME || 1500;   // ms to trigger click
+  window.CURSOR_RADIUS = window.CURSOR_RADIUS || 15; // jitter tolerance radius
 
   let hoverTarget = null;
   let hoverStart = null;
   let hoverProgress = 0;
+  let lastX = 0, lastY = 0;
 
-  // Create loading wheel overlay
+  // --- Create loading wheel overlay ---
   const wheel = document.createElement("div");
-  wheel.style.position = "fixed";
-  wheel.style.width = "40px";
-  wheel.style.height = "40px";
-  wheel.style.border = "3px solid rgba(0,255,255,0.4)";
-  wheel.style.borderTopColor = "#00ffff";
-  wheel.style.borderRadius = "50%";
-  wheel.style.pointerEvents = "none";
-  wheel.style.zIndex = 9998;
-  wheel.style.transition = "opacity 0.2s ease";
-  wheel.style.opacity = 0;
-  wheel.style.zIndex = 9999; // keep wheel and cursor above everything
+  Object.assign(wheel.style, {
+    position: "fixed",
+    width: "40px",
+    height: "40px",
+    border: "3px solid rgba(0,255,255,0.3)",
+    borderTopColor: "#00ffff",
+    borderRadius: "50%",
+    pointerEvents: "none",
+    transition: "opacity 0.2s ease, transform 0.1s linear",
+    opacity: 0,
+    zIndex: 9999, // keep above everything
+    transform: "rotate(0deg)",
+  });
   document.body.appendChild(wheel);
 
+  // --- Helper to update the wheel’s position and rotation ---
   function updateWheel(x, y, progress) {
-    wheel.style.left = (x - 20) + "px";
-    wheel.style.top = (y - 20) + "px";
+    wheel.style.left = `${x - 20}px`;
+    wheel.style.top = `${y - 20}px`;
     wheel.style.transform = `rotate(${progress * 360}deg)`;
     wheel.style.opacity = progress > 0 ? 1 : 0;
   }
 
-  function isHoveringOver(el, x, y, radius) {
-    const rect = el.getBoundingClientRect();
-    const cx = (rect.left + rect.right) / 2;
-    const cy = (rect.top + rect.bottom) / 2;
-    const dx = x - cx;
-    const dy = y - cy;
-    return (
-      x >= rect.left - radius &&
-      x <= rect.right + radius &&
-      y >= rect.top - radius &&
-      y <= rect.bottom + radius
-    );
+  // --- Distance helper for jitter tolerance ---
+  function distance(x1, y1, x2, y2) {
+    return Math.hypot(x2 - x1, y2 - y1);
   }
 
+  // --- Main hover tracking loop ---
   function loop() {
     if (!window.smoothedCursor) {
       requestAnimationFrame(loop);
@@ -61,8 +57,14 @@
     );
 
     if (clickable) {
+      // If a new target, start hover timer
       if (hoverTarget !== clickable) {
         hoverTarget = clickable;
+        hoverStart = performance.now();
+      }
+
+      // If cursor moved too far, reset timer
+      if (distance(x, y, lastX, lastY) > hoverRadius) {
         hoverStart = performance.now();
       }
 
@@ -78,14 +80,28 @@
         updateWheel(x, y, 0);
       }
     } else {
+      // Reset when leaving target
       hoverTarget = null;
       hoverStart = null;
       hoverProgress = 0;
       updateWheel(x, y, 0);
     }
 
+    lastX = x;
+    lastY = y;
+
     requestAnimationFrame(loop);
   }
+
+  // --- CSS animation (for fallback) ---
+  const style = document.createElement("style");
+  style.textContent = `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  `;
+  document.head.appendChild(style);
 
   loop();
 })();
