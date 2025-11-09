@@ -20,6 +20,7 @@
   wheel.style.zIndex = 9998;
   wheel.style.transition = "opacity 0.2s ease";
   wheel.style.opacity = 0;
+  wheel.style.zIndex = 9999; // keep wheel and cursor above everything
   document.body.appendChild(wheel);
 
   function updateWheel(x, y, progress) {
