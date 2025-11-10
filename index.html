@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>BlazeFace Virtual Joystick – Ultra Smooth Nose Tracking</title>
 
   <!-- TensorFlow + BlazeFace -->
@@ -21,28 +20,26 @@
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: cover;
-      transform: scaleX(-1); /* mirror video feed for natural movement */
+      transform: scaleX(-1);
     }
     canvas {
       position: absolute; inset: 0;
       width: 100vw; height: 100vh;
-      pointer-events: none; /* visual only, not interactive */
-      z-index: 5; /* overlay above video, below hover UI */
+      pointer-events: none;
+      z-index: 5; /* overlay above everything else */
     }
   </style>
 </head>
-
 <body>
   <video id="video" autoplay muted playsinline></video>
   <canvas id="overlay"></canvas>
 
   <script>
-    // --- Globals ---
     let model, video, canvas, ctx;
     let smoothedLandmarks = null;
     let smoothedNose = null;
 
-    // --- Default tuning values (editable by controls.js) ---
+    // --- Benchmark tuning constants (editable via controls.js) ---
     window.SMOOTHING_ALPHA      = 0.1;
     window.NOSE_SMOOTH_ALPHA    = 0.08;
     window.CURSOR_ALPHA         = 0.2;
@@ -54,12 +51,11 @@
     window.VERTICAL_FINE_TUNE   = 15;
     window.HORIZONTAL_FINE_TUNE = 25;
 
-    // ✅ Make cursor globally visible to hoverClick.js
+    // ✅ Make cursor global so hoverClick.js can access it
     window.smoothedCursor = { x: 0, y: 0 };
 
     let viewW = 0, viewH = 0, dpr = 1;
 
-    // --- Camera setup ---
     async function setupCamera() {
       video = document.getElementById("video");
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -70,37 +66,29 @@
       return new Promise(r => (video.onloadedmetadata = () => r(video)));
     }
 
-    // --- Initialization ---
     async function main() {
       await tf.setBackend("webgl");
       model = await blazeface.load();
       await setupCamera();
       video.play();
-
       canvas = document.getElementById("overlay");
       ctx = canvas.getContext("2d");
-
       resizeCanvas();
       window.addEventListener("resize", resizeCanvas);
-      window.addEventListener("orientationchange", () =>
-        setTimeout(resizeCanvas, 300)
-      );
-
+      window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
       detectFaces();
     }
 
-    // --- Canvas resize handler ---
     function resizeCanvas() {
       viewW = window.innerWidth;
       viewH = window.innerHeight;
       dpr = window.devicePixelRatio || 1;
-      canvas.width  = Math.round(viewW * dpr);
+      canvas.width = Math.round(viewW * dpr);
       canvas.height = Math.round(viewH * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, viewW, viewH);
     }
 
-    // --- Utility functions ---
     const lerp = (a, b, t) => a + (b - a) * t;
 
     function smoothPoints(prev, next, alpha = SMOOTHING_ALPHA) {
@@ -119,43 +107,38 @@
         const dist = Math.hypot(dx, dy);
         if (dist < threshold) return prev[i];
         const t = Math.min(1, easeFactor * dist / threshold);
-        return [ prev[i][0] + dx * t, prev[i][1] + dy * t ];
+        return [prev[i][0] + dx * t, prev[i][1] + dy * t];
       });
     }
 
-    // --- Main face tracking loop ---
     async function detectFaces() {
       const predictions = await model.estimateFaces(video, false);
       ctx.clearRect(0, 0, viewW, viewH);
 
       if (predictions.length > 0) {
         const pred = predictions[0];
-
-        // --- Smooth & clamp ---
         let tempSmooth = smoothPoints(smoothedLandmarks, pred.landmarks);
-        smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth,
-                                               CLAMP_THRESHOLD, CLAMP_EASE);
+        smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD, CLAMP_EASE);
         const [rEye, lEye, noseRaw, mR, mL, rEar] = smoothedLandmarks;
 
-        // --- Independent nose smoothing ---
+        // --- Nose smoothing ---
         if (!smoothedNose) smoothedNose = [...noseRaw];
         smoothedNose[0] = lerp(smoothedNose[0], noseRaw[0], NOSE_SMOOTH_ALPHA);
         smoothedNose[1] = lerp(smoothedNose[1], noseRaw[1], NOSE_SMOOTH_ALPHA);
 
-        // --- Video-to-canvas alignment (object-fit: cover correction) ---
-        const videoW = video.videoWidth  || viewW;
+        const videoW = video.videoWidth || viewW;
         const videoH = video.videoHeight || viewH;
         const videoAspect = videoW / videoH;
-        const viewAspect  = viewW / viewH;
+        const viewAspect = viewW / viewH;
 
         let drawWidth, drawHeight, offsetX, offsetY;
         if (videoAspect > viewAspect) {
           drawHeight = viewH;
-          drawWidth  = viewH * videoAspect;
+          drawWidth = viewH * videoAspect;
           offsetX = (drawWidth - viewW) / 2;
           offsetY = 0;
         } else {
-          drawWidth  = viewW;
+          drawWidth = viewW;
           drawHeight = viewW / videoAspect;
           offsetX = 0;
           offsetY = (drawHeight - viewH) / 2;
@@ -167,7 +150,6 @@
         const scaleX = drawWidth / videoW;
         const scaleY = drawHeight / videoH;
 
-        // --- Nose-based cursor position ---
         const scaledNoseX = smoothedNose[0] * scaleX - offsetX;
         const scaledNoseY = smoothedNose[1] * scaleY - offsetY;
         const mirroredNoseX = viewW - scaledNoseX;
@@ -192,54 +174,14 @@
         window.smoothedCursor.x = lerp(window.smoothedCursor.x, clampedX, CURSOR_ALPHA);
         window.smoothedCursor.y = lerp(window.smoothedCursor.y, clampedY, CURSOR_ALPHA);
 
-        // --- Draw landmarks ---
-        const mirrorX = x => viewW - (x * scaleX - offsetX);
-        const scaleYf = y => y * scaleY - offsetY;
-
-        const points = [
-          { name: "Right Eye", x: mirrorX(rEye[0]), y: scaleYf(rEye[1]), color: "red" },
-          { name: "Left Eye",  x: mirrorX(lEye[0]), y: scaleYf(lEye[1]), color: "red" },
-          { name: "Nose",      x: mirrorX(smoothedNose[0]), y: scaleYf(smoothedNose[1]), color: "yellow" },
-          { name: "Mouth R",   x: mirrorX(mR[0]),   y: scaleYf(mR[1]),   color: "blue" },
-          { name: "Mouth L",   x: mirrorX(mL[0]),   y: scaleYf(mL[1]),   color: "blue" },
-          { name: "Right Ear", x: mirrorX(rEar[0]), y: scaleYf(rEar[1]), color: "orange" }
-        ];
-
-        ctx.font = "14px Arial";
-        points.forEach(pt => {
-          ctx.fillStyle = pt.color;
-          ctx.beginPath();
-          ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.fillStyle = "#fff";
-          ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
-        });
-
-        // --- Visual grid + cursor ---
-        const screenCenterX2 = viewW / 2;
-        const screenCenterY2 = viewH / 2;
-        ctx.strokeStyle = "#00FF00";
-        ctx.setLineDash([8, 8]);
-        ctx.strokeRect(0, 0, viewW, viewH);
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(screenCenterX2, 0);
-        ctx.lineTo(screenCenterX2, viewH);
-        ctx.moveTo(0, screenCenterY2);
-        ctx.lineTo(viewW, screenCenterY2);
-        ctx.stroke();
-
-        const drawX = Math.max(PAD, Math.min(viewW - PAD, window.smoothedCursor.x));
-        const drawY = Math.max(PAD, Math.min(viewH - PAD, window.smoothedCursor.y));
-
+        // Draw visuals (unchanged)
         ctx.fillStyle = "#00FFFF";
         ctx.beginPath();
-        ctx.arc(drawX, drawY, 8, 0, 2 * Math.PI);
+        ctx.arc(window.smoothedCursor.x, window.smoothedCursor.y, 8, 0, 2 * Math.PI);
         ctx.fill();
 
-        ctx.fillStyle = "#00FFFF";
         ctx.font = "16px monospace";
-        ctx.fillText(`X: ${Math.round(drawX)}, Y: ${Math.round(drawY)}`, 20, 30);
+        ctx.fillText(`X: ${Math.round(window.smoothedCursor.x)}, Y: ${Math.round(window.smoothedCursor.y)}`, 20, 30);
       }
 
       requestAnimationFrame(detectFaces);
@@ -248,7 +190,7 @@
     main();
   </script>
 
-  <!-- Controls & Hover Click -->
+  <!-- Control Panel + Hover Interaction -->
   <script src="controls.js"></script>
   <script src="hoverClick.js"></script>
 </body>
