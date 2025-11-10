@@ -27,7 +27,7 @@
     background: "rgba(0,0,0,0.8)", border: "1px solid #00ffff",
     borderRadius: "12px", padding: "12px", color: "#00ffff",
     fontFamily: "monospace", fontSize: "13px",
-    zIndex: "5", /* 👈 Below cursor and hover wheel */
+    zIndex: "4", /* 👈 Below cursor and hover wheel */
     transition: "all 0.3s ease", maxWidth: "260px",
     backdropFilter: "blur(6px)", overflow: "hidden",
     opacity: "1", transform: "scale(1)", pointerEvents: "auto"
@@ -41,7 +41,7 @@
     background: "#00ffff", color: "#000", fontWeight: "bold",
     border: "none", borderRadius: "20px", padding: "8px 14px",
     cursor: "pointer", boxShadow: "0 0 10px #00ffff88",
-    zIndex: "9998", /* 👈 Same as panel, stays below cursor */
+    zIndex: "4", /* 👈 Same as panel, stays below cursor */
     transition: "0.3s ease"
   });
 
