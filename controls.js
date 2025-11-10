@@ -45,7 +45,7 @@
     transition: "opacity 0.3s ease, transform 0.3s ease",
     maxWidth: "260px",
     maxHeight: "90vh",      // 👈 NEW — limits height to 80% of screen
-    //overflowY: "auto",
+    overflowY: "auto",
     backdropFilter: "blur(6px)",
     overflow: "hidden",
     opacity: "1",
