@@ -44,8 +44,8 @@
     zIndex: "4",              // below hover cursor (z=5) & wheel (z=6)
     transition: "opacity 0.3s ease, transform 0.3s ease",
     maxWidth: "260px",
-    maxHeight: "75vh",      // 👈 NEW — limits height to 80% of screen
-    overflowY: "auto",
+    maxHeight: "90vh",      // 👈 NEW — limits height to 80% of screen
+    //overflowY: "auto",
     backdropFilter: "blur(6px)",
     overflow: "hidden",
     opacity: "1",
