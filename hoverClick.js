@@ -1,10 +1,12 @@
-// hoverClick.js — rectangle hit-test + dwell-based click
+// hoverClick.js — rectangle hit-test + dwell-based click with cooldown
 (() => {
+  // --- Configurable timing ---
   window.HOVER_TIME    = window.HOVER_TIME    ?? 1500;
   window.CURSOR_RADIUS = window.CURSOR_RADIUS ?? 15;
   const HOVER_OUT_GRACE = 10;
+  const COOLDOWN_MS = 800; // ⏱ delay after click before rearming same element
 
-  // Visual highlight
+  // --- Visual highlight style ---
   const style = document.createElement("style");
   style.textContent = `
     .gaze-hover {
@@ -15,11 +17,12 @@
   `;
   document.head.appendChild(style);
 
-  // Dwell wheel
+  // --- Progress wheel ---
   const wheel = document.createElement("div");
   Object.assign(wheel.style, {
     position: "fixed",
-    width: "40px", height: "40px",
+    width: "40px",
+    height: "40px",
     border: "3px solid rgba(0,255,255,0.3)",
     borderTopColor: "#00ffff",
     borderRadius: "50%",
@@ -40,7 +43,7 @@
     wheel.style.opacity = progress > 0 ? 1 : 0;
   };
 
-  // Hover state
+  // --- State tracking ---
   let activeEl = null;
   let hoverStart = 0;
   let progress = 0;
@@ -48,9 +51,9 @@
   const CLICK_SELECTOR = "button, [onclick], [data-hover-click], input, .clickable";
   let clickables = [];
 
+  // --- Gather clickable elements ---
   function refreshClickables() {
-  clickables = Array.from(document.querySelectorAll(CLICK_SELECTOR))
-    .filter(el => {
+    clickables = Array.from(document.querySelectorAll(CLICK_SELECTOR)).filter(el => {
       const style = window.getComputedStyle(el);
       return (
         style.display !== "none" &&
@@ -58,12 +61,13 @@
         (el.offsetParent !== null || style.position === "fixed")
       );
     });
-}
+  }
   refreshClickables();
 
   const mo = new MutationObserver(refreshClickables);
   mo.observe(document.body, { childList: true, subtree: true, attributes: true });
 
+  // --- Utility ---
   const insideRect = (x, y, rect, radius) => {
     const left = rect.left - radius;
     const right = rect.right + radius;
@@ -72,6 +76,7 @@
     return x >= left && x <= right && y >= top && y <= bottom;
   };
 
+  // --- Main loop ---
   function loop() {
     const sc = window.smoothedCursor;
     if (!sc || typeof sc.x !== "number" || typeof sc.y !== "number") {
@@ -84,6 +89,7 @@
 
     updateWheel(x, y, progress);
 
+    // --- If already dwelling on an element ---
     if (activeEl) {
       const rect = activeEl.getBoundingClientRect();
       if (insideRect(x, y, rect, Math.max(window.CURSOR_RADIUS, HOVER_OUT_GRACE))) {
@@ -92,15 +98,23 @@
         updateWheel(x, y, progress);
 
         if (progress >= 1) {
+          // ✅ Trigger click once, then cooldown
           activeEl.click();
-          activeEl.classList.remove("gaze-hover");
+          const clickedEl = activeEl;
+          clickedEl.classList.remove("gaze-hover");
+          clickedEl.dataset.cooldownUntil = performance.now() + COOLDOWN_MS;
+
+          // Reset
           activeEl = null;
+          hoverStart = 0;
           progress = 0;
           updateWheel(x, y, 0);
         }
+
         requestAnimationFrame(loop);
         return;
       } else {
+        // Cursor left element
         activeEl.classList.remove("gaze-hover");
         activeEl = null;
         progress = 0;
@@ -108,8 +122,11 @@
       }
     }
 
+    // --- Find new hover target (respecting cooldown) ---
     let found = null;
     for (const el of clickables) {
+      const until = parseFloat(el.dataset.cooldownUntil || 0);
+      if (performance.now() < until) continue; // skip if still cooling down
       const rect = el.getBoundingClientRect();
       if (insideRect(x, y, rect, window.CURSOR_RADIUS)) {
         found = el;
@@ -117,6 +134,7 @@
       }
     }
 
+    // --- Start dwell on new element ---
     if (found) {
       activeEl = found;
       activeEl.classList.add("gaze-hover");
