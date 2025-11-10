@@ -49,9 +49,16 @@
   let clickables = [];
 
   function refreshClickables() {
-    clickables = Array.from(document.querySelectorAll(CLICK_SELECTOR))
-      .filter(el => el.offsetParent !== null || el === document.body);
-  }
+  clickables = Array.from(document.querySelectorAll(CLICK_SELECTOR))
+    .filter(el => {
+      const style = window.getComputedStyle(el);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        (el.offsetParent !== null || style.position === "fixed")
+      );
+    });
+}
   refreshClickables();
 
   const mo = new MutationObserver(refreshClickables);
