@@ -1,4 +1,4 @@
-// hoverClick.js — rectangle hit-test + dwell-based click with cooldown
+// hoverClick.js — rectangle hit-test + dwell-based click with cooldown and panel-visibility filtering
 (() => {
   // --- Configurable timing ---
   window.HOVER_TIME    = window.HOVER_TIME    ?? 1500;
@@ -55,11 +55,23 @@
   function refreshClickables() {
     clickables = Array.from(document.querySelectorAll(CLICK_SELECTOR)).filter(el => {
       const style = window.getComputedStyle(el);
-      return (
-        style.display !== "none" &&
-        style.visibility !== "hidden" &&
-        (el.offsetParent !== null || style.position === "fixed")
-      );
+
+      // skip elements that are not visually interactable
+      if (style.display === "none" || style.visibility === "hidden") return false;
+
+      // skip elements inside a hidden panel (opacity 0 or pointer-events none)
+      let parent = el;
+      while (parent && parent !== document.body) {
+        const ps = window.getComputedStyle(parent);
+        if (ps.opacity === "0" || ps.pointerEvents === "none") {
+          // 🧩 Optional debug logging — shows when hidden elements are skipped
+          console.log("Skipping hidden element:", el);
+          return false;
+        }
+        parent = parent.parentElement;
+      }
+
+      return el.offsetParent !== null || style.position === "fixed";
     });
   }
   refreshClickables();
