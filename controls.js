@@ -27,7 +27,7 @@
     background: "rgba(0,0,0,0.8)", border: "1px solid #00ffff",
     borderRadius: "12px", padding: "12px", color: "#00ffff",
     fontFamily: "monospace", fontSize: "13px",
-    zIndex: "9998", /* 👈 Below cursor and hover wheel */
+    zIndex: "5", /* 👈 Below cursor and hover wheel */
     transition: "all 0.3s ease", maxWidth: "260px",
     backdropFilter: "blur(6px)", overflow: "hidden",
     opacity: "1", transform: "scale(1)", pointerEvents: "auto"
