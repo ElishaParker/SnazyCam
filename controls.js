@@ -34,6 +34,7 @@
   });
 
   // --- Toggle button ---
+  // --- Toggle button ---
   const toggleButton = document.createElement("button");
   toggleButton.textContent = "Close Controls";
   Object.assign(toggleButton.style, {
@@ -52,10 +53,31 @@
     panel.style.pointerEvents = visible ? "auto" : "none";
     panel.style.transform = visible ? "scale(1)" : "scale(0.9)";
     toggleButton.textContent = visible ? "Close Controls" : "Open Controls";
+
+    // 🎥 NEW: Hide camera + overlay when menu is closed, keep cursor active
+    const video = document.getElementById("video");
+    const overlay = document.getElementById("overlay");
+
+    if (video && overlay) {
+      if (!visible) {
+        // fade out the live camera and visual tracker
+        video.style.opacity = "0";
+        overlay.style.opacity = "0";
+        video.style.pointerEvents = "none";
+        overlay.style.pointerEvents = "none";
+      } else {
+        // fade them back in when reopening menu
+        video.style.opacity = "1";
+        overlay.style.opacity = "1";
+        video.style.pointerEvents = "auto";
+        overlay.style.pointerEvents = "none"; // overlay remains non-clickable
+      }
+    }
   };
 
   document.body.appendChild(panel);
   document.body.appendChild(toggleButton);
+
 
   // Title
   const title = document.createElement('div');
