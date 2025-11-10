@@ -127,16 +127,29 @@
     }
 
     if (found) {
-      activeEl = found;
-      activeEl.classList.add("gaze-hover");
-      hoverStart = performance.now();
-      progress = 0;
-      updateWheel(x, y, 0);
-    } else {
-      // No target
-      progress = 0;
-      updateWheel(x, y, 0);
-    }
+  // 🟢 Diagnostic logging — shows what element is being hovered
+  console.log(
+    "Hovering:", 
+    found.tagName, 
+    found.textContent.trim() || found.getAttribute("id") || found.className || "(no label)"
+  );
+
+  // Highlight the hovered element visually
+  activeEl = found;
+  activeEl.classList.add("gaze-hover");
+
+  // Reset dwell tracking
+  hoverStart = performance.now();
+  progress = 0;
+
+  // Reset progress wheel at cursor position
+  updateWheel(x, y, 0);
+} else {
+  // No target found — reset progress and hide wheel
+  progress = 0;
+  updateWheel(x, y, 0);
+}
+
 
     requestAnimationFrame(loop);
   }
