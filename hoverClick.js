@@ -27,7 +27,7 @@
     borderRadius: "50%",
     pointerEvents: "none",
     opacity: 0,
-    zIndex: 99999,
+    zIndex: 5,
     transform: "rotate(0deg)",
     transition: "opacity 0.15s ease, transform 0.08s linear",
     left: "-9999px",
