@@ -32,7 +32,7 @@
   const panel = document.createElement("div");
   Object.assign(panel.style, {
     position: "fixed",
-    bottom: "40px",
+    bottom: "50px",
     right: "10px",
     background: "rgba(0,0,0,0.8)",
     border: "1px solid #00ffff",
