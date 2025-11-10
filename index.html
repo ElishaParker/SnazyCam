@@ -114,121 +114,127 @@
     }
 
     async function detectFaces() {
-      const predictions = await model.estimateFaces(video, false);
-      ctx.clearRect(0, 0, viewW, viewH);
+  const predictions = await model.estimateFaces(video, false);
+  ctx.clearRect(0, 0, viewW, viewH);
 
-      if (predictions.length > 0) {
-        const pred = predictions[0];
+  if (predictions.length > 0) {
+    const pred = predictions[0];
 
-        // --- Landmark smoothing ---
-        let tempSmooth = smoothPoints(smoothedLandmarks, pred.landmarks);
-        smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD, CLAMP_EASE);
-        const [rEye, lEye, noseRaw, mR, mL, rEar] = smoothedLandmarks;
+    // --- Landmark smoothing ---
+    let tempSmooth = smoothPoints(smoothedLandmarks, pred.landmarks);
+    smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD, CLAMP_EASE);
+    const [rEye, lEye, noseRaw, mR, mL, rEar] = smoothedLandmarks;
 
-        // --- Nose smoothing ---
-        if (!smoothedNose) smoothedNose = [...noseRaw];
-        smoothedNose[0] = lerp(smoothedNose[0], noseRaw[0], NOSE_SMOOTH_ALPHA);
-        smoothedNose[1] = lerp(smoothedNose[1], noseRaw[1], NOSE_SMOOTH_ALPHA);
+    // --- Nose smoothing ---
+    if (!smoothedNose) smoothedNose = [...noseRaw];
+    smoothedNose[0] = lerp(smoothedNose[0], noseRaw[0], NOSE_SMOOTH_ALPHA);
+    smoothedNose[1] = lerp(smoothedNose[1], noseRaw[1], NOSE_SMOOTH_ALPHA);
 
-        // --- Video scaling ---
-        const videoW = video.videoWidth || viewW;
-        const videoH = video.videoHeight || viewH;
-        const videoAspect = videoW / videoH;
-        const viewAspect = viewW / viewH;
-        let drawWidth, drawHeight, offsetX, offsetY;
-        if (videoAspect > viewAspect) {
-          drawHeight = viewH;
-          drawWidth  = viewH * videoAspect;
-          offsetX = (drawWidth - viewW) / 2;
-          offsetY = 0;
-        } else {
-          drawWidth  = viewW;
-          drawHeight = viewW / videoAspect;
-          offsetX = 0;
-          offsetY = (drawHeight - viewH) / 2;
-        }
-        offsetY += VERTICAL_FINE_TUNE;
-        offsetX += HORIZONTAL_FINE_TUNE;
-        const scaleX = drawWidth / videoW;
-        const scaleY = drawHeight / videoH;
-
-        // --- Nose to cursor ---
-        const scaledNoseX = smoothedNose[0] * scaleX - offsetX;
-        const scaledNoseY = smoothedNose[1] * scaleY - offsetY;
-        const mirroredNoseX = viewW - scaledNoseX;
-        const mirroredNoseY = scaledNoseY;
-
-        const normX = mirroredNoseX / viewW;
-        const normY = mirroredNoseY / viewH;
-
-        const screenCenterX = viewW / 2;
-        const screenCenterY = viewH / 2;
-        const offsetXcursor = (normX - 0.5) * viewW * VIRTUAL_SCALE;
-        const offsetYcursor = (normY - 0.5) * viewH * VIRTUAL_SCALE;
-
-        const cursorX = screenCenterX + offsetXcursor * SENSITIVITY_X;
-        const cursorY = screenCenterY + offsetYcursor * SENSITIVITY_Y;
-
-        const PAD = 8;
-        const clampedX = Math.max(PAD, Math.min(viewW - PAD, cursorX));
-        const clampedY = Math.max(PAD, Math.min(viewH - PAD, cursorY));
-
-        window.smoothedCursor.x = lerp(window.smoothedCursor.x, clampedX, CURSOR_ALPHA);
-        window.smoothedCursor.y = lerp(window.smoothedCursor.y, clampedY, CURSOR_ALPHA);
-
-        // --- Draw landmarks ---
-        const mirrorX = x => viewW - (x * scaleX - offsetX);
-        const scaleYf = y => y * scaleY - offsetY;
-        const points = [
-          { name: "Right Eye", x: mirrorX(rEye[0]), y: scaleYf(rEye[1]), color: "red" },
-          { name: "Left Eye",  x: mirrorX(lEye[0]), y: scaleYf(lEye[1]), color: "red" },
-          { name: "Nose",      x: mirrorX(smoothedNose[0]), y: scaleYf(smoothedNose[1]), color: "yellow" },
-          { name: "Mouth R",   x: mirrorX(mR[0]),   y: scaleYf(mR[1]),   color: "blue" },
-          { name: "Mouth L",   x: mirrorX(mL[0]),   y: scaleYf(mL[1]),   color: "blue" },
-          { name: "Right Ear", x: mirrorX(rEar[0]), y: scaleYf(rEar[1]), color: "orange" }
-        ];
-
-        ctx.font = "14px Arial";
-        points.forEach(pt => {
-          ctx.fillStyle = pt.color;
-          ctx.beginPath();
-          ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.fillStyle = "#fff";
-          ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
-        });
-
-        // --- Grid + cursor ---
-        const midX = viewW / 2;
-        const midY = viewH / 2;
-        ctx.strokeStyle = "#00FF00";
-        ctx.setLineDash([8, 8]);
-        ctx.strokeRect(0, 0, viewW, viewH);
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(midX, 0);
-        ctx.lineTo(midX, viewH);
-        ctx.moveTo(0, midY);
-        ctx.lineTo(viewW, midY);
-        ctx.stroke();
-
-        // --- Cursor dot ---
-        const drawX = Math.max(PAD, Math.min(viewW - PAD, window.smoothedCursor.x));
-        const drawY = Math.max(PAD, Math.min(viewH - PAD, window.smoothedCursor.y));
-
-        ctx.fillStyle = "#00FFFF";
-        ctx.beginPath();
-        ctx.arc(drawX, drawY, 8, 0, 2 * Math.PI);
-        ctx.fill();
-
-        // --- Coordinates ---
-        ctx.fillStyle = "#00FFFF";
-        ctx.font = "16px monospace";
-        ctx.fillText(`X: ${Math.round(drawX)}, Y: ${Math.round(drawY)}`, 20, 30);
-      }
-
-      requestAnimationFrame(detectFaces);
+    // --- Video scaling ---
+    const videoW = video.videoWidth || viewW;
+    const videoH = video.videoHeight || viewH;
+    const videoAspect = videoW / videoH;
+    const viewAspect = viewW / viewH;
+    let drawWidth, drawHeight, offsetX, offsetY;
+    if (videoAspect > viewAspect) {
+      drawHeight = viewH;
+      drawWidth  = viewH * videoAspect;
+      offsetX = (drawWidth - viewW) / 2;
+      offsetY = 0;
+    } else {
+      drawWidth  = viewW;
+      drawHeight = viewW / videoAspect;
+      offsetX = 0;
+      offsetY = (drawHeight - viewH) / 2;
     }
+    offsetY += VERTICAL_FINE_TUNE;
+    offsetX += HORIZONTAL_FINE_TUNE;
+    const scaleX = drawWidth / videoW;
+    const scaleY = drawHeight / videoH;
+
+    // --- Nose to cursor ---
+    const scaledNoseX = smoothedNose[0] * scaleX - offsetX;
+    const scaledNoseY = smoothedNose[1] * scaleY - offsetY;
+    const mirroredNoseX = viewW - scaledNoseX;
+    const mirroredNoseY = scaledNoseY;
+
+    const normX = mirroredNoseX / viewW;
+    const normY = mirroredNoseY / viewH;
+
+    const screenCenterX = viewW / 2;
+    const screenCenterY = viewH / 2;
+    const offsetXcursor = (normX - 0.5) * viewW * VIRTUAL_SCALE;
+    const offsetYcursor = (normY - 0.5) * viewH * VIRTUAL_SCALE;
+
+    const cursorX = screenCenterX + offsetXcursor * SENSITIVITY_X;
+    const cursorY = screenCenterY + offsetYcursor * SENSITIVITY_Y;
+
+    const PAD = 8;
+    const clampedX = Math.max(PAD, Math.min(viewW - PAD, cursorX));
+    const clampedY = Math.max(PAD, Math.min(viewH - PAD, cursorY));
+
+    window.smoothedCursor.x = lerp(window.smoothedCursor.x, clampedX, CURSOR_ALPHA);
+    window.smoothedCursor.y = lerp(window.smoothedCursor.y, clampedY, CURSOR_ALPHA);
+
+    // --- Draw landmarks ---
+    const mirrorX = x => viewW - (x * scaleX - offsetX);
+    const scaleYf = y => y * scaleY - offsetY;
+    const points = [
+      { name: "Right Eye", x: mirrorX(rEye[0]), y: scaleYf(rEye[1]), color: "red" },
+      { name: "Left Eye",  x: mirrorX(lEye[0]), y: scaleYf(lEye[1]), color: "red" },
+      { name: "Nose",      x: mirrorX(smoothedNose[0]), y: scaleYf(smoothedNose[1]), color: "yellow" },
+      { name: "Mouth R",   x: mirrorX(mR[0]),   y: scaleYf(mR[1]),   color: "blue" },
+      { name: "Mouth L",   x: mirrorX(mL[0]),   y: scaleYf(mL[1]),   color: "blue" },
+      { name: "Right Ear", x: mirrorX(rEar[0]), y: scaleYf(rEar[1]), color: "orange" }
+    ];
+
+    ctx.font = "14px Arial";
+    points.forEach(pt => {
+      ctx.fillStyle = pt.color;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
+    });
+
+    // --- Grid ---
+    const midX = viewW / 2;
+    const midY = viewH / 2;
+    ctx.strokeStyle = "#00FF00";
+    ctx.setLineDash([8, 8]);
+    ctx.strokeRect(0, 0, viewW, viewH);
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(midX, 0);
+    ctx.lineTo(midX, viewH);
+    ctx.moveTo(0, midY);
+    ctx.lineTo(viewW, midY);
+    ctx.stroke();
+
+    // --- Draw cursor on separate layer ---
+    const drawX = Math.max(PAD, Math.min(viewW - PAD, window.smoothedCursor.x));
+    const drawY = Math.max(PAD, Math.min(viewH - PAD, window.smoothedCursor.y));
+    const cursorCanvas = document.getElementById("cursorLayer");
+
+    if (cursorCanvas) {
+      const cctx = cursorCanvas.getContext("2d");
+      cctx.clearRect(0, 0, viewW, viewH);
+      cctx.fillStyle = "#00FFFF";
+      cctx.beginPath();
+      cctx.arc(drawX, drawY, 8, 0, 2 * Math.PI);
+      cctx.fill();
+
+      // --- Coordinates text on cursor layer ---
+      cctx.fillStyle = "#00FFFF";
+      cctx.font = "16px monospace";
+      cctx.fillText(`X: ${Math.round(drawX)}, Y: ${Math.round(drawY)}`, 20, 30);
+    }
+  }
+
+  requestAnimationFrame(detectFaces);
+}
+
 
     main();
   </script>
