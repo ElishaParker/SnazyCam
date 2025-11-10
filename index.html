@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>BlazeFace Virtual Joystick – Ultra Smooth Nose Tracking</title>
 
+  <!-- TensorFlow + BlazeFace -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -19,54 +21,45 @@
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: cover;
-      transform: scaleX(-1);
-     
+      transform: scaleX(-1); /* mirror video feed for natural movement */
     }
     canvas {
       position: absolute; inset: 0;
       width: 100vw; height: 100vh;
-      pointer-events: none;
-      z-index: 5; /* keep overlay above everything else */
+      pointer-events: none; /* visual only, not interactive */
+      z-index: 5; /* overlay above video, below hover UI */
     }
-
-
   </style>
 </head>
+
 <body>
   <video id="video" autoplay muted playsinline></video>
   <canvas id="overlay"></canvas>
 
   <script>
+    // --- Globals ---
     let model, video, canvas, ctx;
     let smoothedLandmarks = null;
     let smoothedNose = null;
 
-    // --- Tuning constants ---
-    //const SMOOTHING_ALPHA = 0.1;      // regular landmark smoothing
-    //const NOSE_SMOOTH_ALPHA = 0.08;    // 🔹 slower nose-only smoothing
-    //const CURSOR_ALPHA = 0.2;
-    //const SENSITIVITY_X = 1.0;
-    //const SENSITIVITY_Y = 1.0;
-    //const VIRTUAL_SCALE = 15;
-    //const CLAMP_THRESHOLD = 1.0;
-   // const CLAMP_EASE = 0.05;
-    //const VERTICAL_FINE_TUNE = 15;
-    //const HORIZONTAL_FINE_TUNE = 25;
-    window.SMOOTHING_ALPHA     = 0.1;
-    window.NOSE_SMOOTH_ALPHA   = 0.08;
-    window.CURSOR_ALPHA        = 0.2;
-    window.SENSITIVITY_X       = 1.0;
-    window.SENSITIVITY_Y       = 1.0;
-    window.VIRTUAL_SCALE       = 15;
-    window.CLAMP_THRESHOLD     = 1.0;
-    window.CLAMP_EASE          = 0.05;
-    window.VERTICAL_FINE_TUNE  = 15;
-    window.HORIZONTAL_FINE_TUNE= 25;
+    // --- Default tuning values (editable by controls.js) ---
+    window.SMOOTHING_ALPHA      = 0.1;
+    window.NOSE_SMOOTH_ALPHA    = 0.08;
+    window.CURSOR_ALPHA         = 0.2;
+    window.SENSITIVITY_X        = 1.0;
+    window.SENSITIVITY_Y        = 1.0;
+    window.VIRTUAL_SCALE        = 15;
+    window.CLAMP_THRESHOLD      = 1.0;
+    window.CLAMP_EASE           = 0.05;
+    window.VERTICAL_FINE_TUNE   = 15;
+    window.HORIZONTAL_FINE_TUNE = 25;
 
+    // ✅ Make cursor globally visible to hoverClick.js
+    window.smoothedCursor = { x: 0, y: 0 };
 
-    let smoothedCursor = { x: 0, y: 0 };
     let viewW = 0, viewH = 0, dpr = 1;
 
+    // --- Camera setup ---
     async function setupCamera() {
       video = document.getElementById("video");
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -74,22 +67,29 @@
         audio: false
       });
       video.srcObject = stream;
-      return new Promise(r => video.onloadedmetadata = () => r(video));
+      return new Promise(r => (video.onloadedmetadata = () => r(video)));
     }
 
+    // --- Initialization ---
     async function main() {
       await tf.setBackend("webgl");
       model = await blazeface.load();
       await setupCamera();
       video.play();
+
       canvas = document.getElementById("overlay");
       ctx = canvas.getContext("2d");
+
       resizeCanvas();
       window.addEventListener("resize", resizeCanvas);
-      window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300));
+      window.addEventListener("orientationchange", () =>
+        setTimeout(resizeCanvas, 300)
+      );
+
       detectFaces();
     }
 
+    // --- Canvas resize handler ---
     function resizeCanvas() {
       viewW = window.innerWidth;
       viewH = window.innerHeight;
@@ -100,7 +100,8 @@
       ctx.clearRect(0, 0, viewW, viewH);
     }
 
-    function lerp(a, b, t) { return a + (b - a) * t; }
+    // --- Utility functions ---
+    const lerp = (a, b, t) => a + (b - a) * t;
 
     function smoothPoints(prev, next, alpha = SMOOTHING_ALPHA) {
       if (!prev) return next;
@@ -122,6 +123,7 @@
       });
     }
 
+    // --- Main face tracking loop ---
     async function detectFaces() {
       const predictions = await model.estimateFaces(video, false);
       ctx.clearRect(0, 0, viewW, viewH);
@@ -129,18 +131,19 @@
       if (predictions.length > 0) {
         const pred = predictions[0];
 
-        // Landmark smoothing & clamping
+        // --- Smooth & clamp ---
         let tempSmooth = smoothPoints(smoothedLandmarks, pred.landmarks);
-        smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth, CLAMP_THRESHOLD, CLAMP_EASE);
+        smoothedLandmarks = clampSmallMovement(smoothedLandmarks, tempSmooth,
+                                               CLAMP_THRESHOLD, CLAMP_EASE);
         const [rEye, lEye, noseRaw, mR, mL, rEar] = smoothedLandmarks;
 
-        // --- 🔹 Independent nose smoothing ---
+        // --- Independent nose smoothing ---
         if (!smoothedNose) smoothedNose = [...noseRaw];
         smoothedNose[0] = lerp(smoothedNose[0], noseRaw[0], NOSE_SMOOTH_ALPHA);
         smoothedNose[1] = lerp(smoothedNose[1], noseRaw[1], NOSE_SMOOTH_ALPHA);
 
-        // --- Handle object-fit: cover cropping ---
-        const videoW = video.videoWidth || viewW;
+        // --- Video-to-canvas alignment (object-fit: cover correction) ---
+        const videoW = video.videoWidth  || viewW;
         const videoH = video.videoHeight || viewH;
         const videoAspect = videoW / videoH;
         const viewAspect  = viewW / viewH;
@@ -164,7 +167,7 @@
         const scaleX = drawWidth / videoW;
         const scaleY = drawHeight / videoH;
 
-        // --- Use smoothed nose for cursor ---
+        // --- Nose-based cursor position ---
         const scaledNoseX = smoothedNose[0] * scaleX - offsetX;
         const scaledNoseY = smoothedNose[1] * scaleY - offsetY;
         const mirroredNoseX = viewW - scaledNoseX;
@@ -185,10 +188,11 @@
         const clampedX = Math.max(PAD, Math.min(viewW - PAD, cursorX));
         const clampedY = Math.max(PAD, Math.min(viewH - PAD, cursorY));
 
-        smoothedCursor.x = lerp(smoothedCursor.x, clampedX, CURSOR_ALPHA);
-        smoothedCursor.y = lerp(smoothedCursor.y, clampedY, CURSOR_ALPHA);
+        // ✅ Update global cursor
+        window.smoothedCursor.x = lerp(window.smoothedCursor.x, clampedX, CURSOR_ALPHA);
+        window.smoothedCursor.y = lerp(window.smoothedCursor.y, clampedY, CURSOR_ALPHA);
 
-        // --- Draw all landmarks ---
+        // --- Draw landmarks ---
         const mirrorX = x => viewW - (x * scaleX - offsetX);
         const scaleYf = y => y * scaleY - offsetY;
 
@@ -211,7 +215,7 @@
           ctx.fillText(pt.name, pt.x + 6, pt.y - 6);
         });
 
-        // --- Grid + cursor ---
+        // --- Visual grid + cursor ---
         const screenCenterX2 = viewW / 2;
         const screenCenterY2 = viewH / 2;
         ctx.strokeStyle = "#00FF00";
@@ -225,8 +229,8 @@
         ctx.lineTo(viewW, screenCenterY2);
         ctx.stroke();
 
-        const drawX = Math.max(PAD, Math.min(viewW - PAD, smoothedCursor.x));
-        const drawY = Math.max(PAD, Math.min(viewH - PAD, smoothedCursor.y));
+        const drawX = Math.max(PAD, Math.min(viewW - PAD, window.smoothedCursor.x));
+        const drawY = Math.max(PAD, Math.min(viewH - PAD, window.smoothedCursor.y));
 
         ctx.fillStyle = "#00FFFF";
         ctx.beginPath();
@@ -244,9 +248,8 @@
     main();
   </script>
 
-  <!-- ✅ Add the control panel here -->
+  <!-- Controls & Hover Click -->
   <script src="controls.js"></script>
   <script src="hoverClick.js"></script>
-
 </body>
 </html>
