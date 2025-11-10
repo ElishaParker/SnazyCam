@@ -1,5 +1,12 @@
 // hoverClick.js — rectangle hit-test + dwell, no elementFromPoint, no z-index dependency
 (() => {
+  // --- TEMP FIX: move canvas below everything else for hit-testing ---
+const overlayCanvas = document.querySelector("canvas#overlay");
+if (overlayCanvas) {
+  overlayCanvas.style.zIndex = "0";        // below controls
+  overlayCanvas.style.position = "absolute";
+}
+
   // ---- Tunables (overridable by controls panel) ----
   window.HOVER_TIME    = window.HOVER_TIME    ?? 1500; // ms to trigger click
   window.CURSOR_RADIUS = window.CURSOR_RADIUS ?? 15;   // px jitter radius
