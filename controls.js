@@ -40,7 +40,7 @@
     padding: "12px",
     color: "#00ffff",
     fontFamily: "monospace",
-    fontSize: "13px",
+    fontSize: "11px",
     zIndex: "4",              // below hover cursor (z=5) & wheel (z=6)
     transition: "opacity 0.3s ease, transform 0.3s ease",
     maxWidth: "260px",
