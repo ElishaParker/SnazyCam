@@ -77,7 +77,7 @@
       requestAnimationFrame(loop);
       return;
     }
-    const x = sc.x; // CSS pixels (your code already uses CSS pixel coords)
+    const x = window.innerWidth - sc.x; // CSS pixels (your code already uses CSS pixel coords)
     const y = sc.y;
 
     // Update progress wheel position even if no target
