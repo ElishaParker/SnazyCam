@@ -19,7 +19,7 @@
     pointerEvents: "none",
     transition: "opacity 0.2s ease, transform 0.1s linear",
     opacity: 0,
-    zIndex: 99999,
+    zIndex: 6,
     transform: "rotate(0deg)",
     left: "-9999px",
     top: "-9999px"
